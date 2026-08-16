@@ -36,7 +36,14 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import httpx
+try:
+    import httpx
+except ImportError:  # pragma: no cover - the host has no third-party packages
+    # httpx lives in the driver image, not on the host. Guarding the import
+    # keeps the pure logic below -- episode assignment, asset selection --
+    # importable and testable by the ordinary suite, which has to run on a
+    # bare python3. Anything that actually issues a request needs the image.
+    httpx = None
 
 sys.path.insert(0, "/opt/logforge")
 
@@ -133,7 +140,7 @@ class Driver:
         try:
             response = await client.request(
                 method, BASE + step_path, headers=headers, content=body)
-        except httpx.HTTPError:
+        except httpx.HTTPError:  # type: ignore[union-attr]
             # The request was still made and Apache may still have logged it.
             # The ledger records it either way; the join is what decides.
             response = None

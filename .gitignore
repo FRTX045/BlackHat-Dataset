@@ -11,6 +11,9 @@ datasets/**/access.tagged.log
 datasets/**/access.apache.log
 datasets/**/error.log
 datasets/**/truth.jsonl
+# The truth file for the capture, when timestamps were remapped. Same size as
+# truth.jsonl and published the same way.
+datasets/**/truth.raw.jsonl
 datasets/**/*.log.zst
 datasets/**/SHA256SUMS
 

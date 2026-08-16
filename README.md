@@ -39,10 +39,20 @@ pip install. Every third-party dependency lives inside a container image.
 
 ## Scale tiers
 
-| Tier | Lines | Approx. size | Virtual span | Purpose |
-|---|---|---|---|---|
-| `small` | ~50,000 | ~12 MB | a few hours | Fast iteration |
-| `medium` | ~1,000,000 | ~230 MB | 7–14 days | The main dataset |
+| Tier | Lines | Approx. size | Span of the log | Build time | Purpose |
+|---|---|---|---|---|---|
+| `small` | ~70,000 | ~17 MB | 1 day | ~8 min | Fast iteration |
+| `medium` | ~250,000 | ~60 MB | 7 days | ~20 min | The main dataset |
+
+The **span of the log is not the duration of the build**. The driver issues its
+whole plan as fast as the sockets allow, so a run that takes eight minutes
+produces requests in the right *order* and at an impossible *rate*. Timestamps
+are therefore rewritten onto the same arrival curves the traffic was planned
+against — and the log the server actually wrote ships alongside as
+`access.raw.log`, so nothing is taken on trust. This is the one thing in the
+project that is computed rather than collected;
+[docs/methodology.md](docs/methodology.md) says exactly what is done and what
+it costs.
 
 Larger tiers are not the small one repeated. A multi-week log contains things a
 four-hour log cannot: weekend dips, a traffic spike, a deployment that changes
@@ -139,6 +149,28 @@ and client IP concentration — as numbers to actually look at.
 
 Every dataset README ends with a **Known limitations** section naming what is
 still unrealistic about it. Every synthetic dataset has some.
+
+### The fake-log audit
+
+`tools/audit.py` asks the only question that decides whether research done on
+a generated log transfers to a real one: could an analyst tell?
+
+```bash
+python3 tools/audit.py datasets/apache-shopfront/2026-08-17-small -v
+python3 tools/audit.py datasets/apache-shopfront/2026-08-17-small --compare access.raw.log
+python3 tools/audit.py /var/log/apache2/access.log      # or anybody else's
+```
+
+Eight tells — round-number response sizes, an implausible request rate,
+user-agent monoculture, uniform client volumes, missing status classes, an
+absence of malformed requests, perfectly ordered timestamps, and client
+addresses counted out of a subnet. Each publishes the threshold it used, and
+too little data is reported as *inconclusive* rather than as a pass.
+
+It is pointed at our own datasets first and hardest, **and it does find
+things.** Whatever fires on a dataset is written into that dataset's README
+and its manifest. The point of owning the detector is that the findings are
+ours to publish rather than somebody else's to discover.
 
 ## Safety
 

@@ -1,3 +1,34 @@
 {
-  "8080": {"mode": "peer", "actor": "tool"}
+  "8080": {
+    "mode": "peer",
+    "actor": "tool:sqlmap"
+  },
+  "8081": {
+    "mode": "peer",
+    "actor": "tool:whatweb"
+  },
+  "8082": {
+    "mode": "peer",
+    "actor": "tool:gobuster"
+  },
+  "8083": {
+    "mode": "peer",
+    "actor": "tool:dirb"
+  },
+  "8084": {
+    "mode": "peer",
+    "actor": "tool:gobuster"
+  },
+  "8085": {
+    "mode": "peer",
+    "actor": "tool:dirb"
+  },
+  "8086": {
+    "mode": "peer",
+    "actor": "tool:hydra"
+  },
+  "8087": {
+    "mode": "peer",
+    "actor": "tool:nmap"
+  }
 }

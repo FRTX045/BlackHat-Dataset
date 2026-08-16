@@ -24,9 +24,25 @@ import re
 from urllib.parse import unquote
 
 #: Actors whose whole run is one activity, whatever the individual requests
-#: look like. Extended as Phase E adds tools.
+#: look like.
+#:
+#: Every tool that can appear in a ledger must be here. An actor this table
+#: does not recognise falls through to per-request guessing, and for a tool
+#: that guessing is reliably wrong: a shipped dataset once carried 9,293 tool
+#: requests of which 98% were labelled `browsing`, because the proxy stamped
+#: the generic actor `tool` and none of these prefixes ever matched.
+#:
+#: `tool:sqlmap` is `injection` for its whole run rather than per request.
+#: Its boolean payloads look like `q=oak%' AND 7889=7889 AND 'NOey%'='NOey`,
+#: which carries no UNION and no `or 1=1`, so the payload regex below catches
+#: roughly one request in forty-five. The run is an injection attempt from its
+#: first request to its last, and labelling it by what each request happens to
+#: contain describes the syntax rather than the activity.
 _ACTOR_CATEGORIES = (
     (("tool:gobuster", "tool:ffuf", "tool:dirb"), "enumeration"),
+    (("tool:sqlmap",), "injection"),
+    (("tool:whatweb", "tool:nmap", "tool:nikto"), "reconnaissance"),
+    (("tool:hydra",), "credential_attack"),
     (("crawler:",), "crawling"),
 )
 

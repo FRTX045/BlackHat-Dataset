@@ -264,6 +264,30 @@ services:
       lab_cloud:
         ipv4_address: 198.51.100.33
 
+  # The same two tools over dirb's 959-word small.txt. The one-day tier uses
+  # these; the week-long tier uses the 4,614-word common.txt above. Two full
+  # walks inside a single day put the attack share at 14% against a 2-8%
+  # target, and are more scanning than one small shop sees in a day anyway.
+  tool-gobuster-small:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "gobuster"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.34
+
+  tool-dirb-small:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "dirb"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.35
+
   tool-nmap-http:
     build: ./attacks
     image: logforge/apache-shopfront-attacker:dev

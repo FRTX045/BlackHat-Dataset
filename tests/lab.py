@@ -35,8 +35,12 @@ DOCKER_AVAILABLE = os.environ.get("LOGFORGE_DOCKER") == "1"
 
 
 def docker(*args, **kwargs):
+    # errors="replace": responses whose body is an image or an icon are not
+    # valid UTF-8, and a helper that raised on them would make every binary
+    # asset untestable.
     return subprocess.run(
-        ["docker", *args], capture_output=True, text=True, **kwargs)
+        ["docker", *args], capture_output=True, text=True,
+        errors="replace", **kwargs)
 
 
 def compose(*args):
@@ -63,6 +67,20 @@ def request(network, source_ip, url, headers=(), extra=()):
     if result.returncode != 0:
         raise RuntimeError(f"request from {source_ip} failed: {result.stderr}")
     return result.stdout.strip()
+
+
+def fetch(url, source_ip="203.0.113.90", network="lab_res", headers=(), extra=()):
+    """Return (status, body) for one request. Body is text."""
+    argv = ["run", "--rm", "--network", network, "--ip", source_ip,
+            "--entrypoint", "curl", IMAGE, "-s", "-w", "\\n%{http_code}", *extra]
+    for header in headers:
+        argv += ["-H", header]
+    argv.append(url)
+    result = docker(*argv)
+    if result.returncode != 0:
+        raise RuntimeError(f"request for {url} failed: {result.stderr}")
+    body, _, status = result.stdout.rpartition("\n")
+    return status.strip(), body
 
 
 def response_headers(network, source_ip, url):

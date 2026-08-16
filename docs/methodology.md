@@ -64,11 +64,13 @@ any amount of concurrency.
 ### Why `access.log` is derived, not captured in parallel
 
 The natural implementation is two `CustomLog` directives writing two files, then
-joining them line by line. **That is not safe.** Apache's `mpm_event` handles
-requests on multiple threads, and two threads can interleave their writes to the
-two files differently. Line N of `access.log` is not guaranteed to be line N of
-`access.tagged.log`, and the divergence would occur precisely on the overlapping
-requests the dataset exists to represent.
+joining them line by line. **That is not safe.** Apache serves this application
+under `mpm_prefork`, because `mod_php` is not thread-safe, so concurrent
+requests are handled by separate processes; each writes to both files
+independently. Nothing orders one process's write to `access.log` against
+another's write to `access.tagged.log`. Line N of one is not guaranteed to be
+line N of the other, and the divergence would occur precisely on the
+overlapping requests the dataset exists to represent.
 
 So the shipped `access.log` is **derived from the tagged log by removing the id
 prefix**. Line N of the log and line N of `truth.jsonl` are then the same
@@ -109,11 +111,38 @@ Attacker containers are deliberately untrusted, so their own real network
 address is what lands in the log — they cannot declare an address even if a tool
 sends the header.
 
+That boundary is not assumed. `tests/server/test_apache_logging.py` drives real
+requests at a real container and asserts it in both directions: a source outside
+the trust list sending `X-Forwarded-For` gets its own address logged, and one
+inside the list gets the declared address logged. It covers `100.64.0.0/10`
+specifically, because `mod_remoteip` treats non-public addresses differently
+under `RemoteIPTrustedProxy` than under `RemoteIPInternalProxy` and the mobile
+personas have no valid addresses if that case fails. The tests run against the
+server on every change to its configuration.
+
 Addresses are drawn only from `203.0.113.0/24`, `198.51.100.0/24`,
 `192.0.2.0/24` and `100.64.0.0/10`, weighted by role — residential, mobile
 CGNAT, cloud for the well-behaved bots, datacenter for the scanners. The
 distribution matters more than the numbers: a few heavy clients and a long tail
 of one-request visitors. No address here belongs to an identifiable party.
+
+### The log format, and the one request that is not logged
+
+The `combined` nickname is **redefined** rather than inherited. Debian's stock
+definition uses `%O` — bytes put on the wire, response headers included — which
+never emits `-`. These datasets use `%b`, the canonical Combined Log Format
+field, so a `304` and a `HEAD` record `-` rather than a header count. That is
+what every log-analysis tool reading this data will expect, and a plausible
+number in a field that should be empty is the kind of error nothing downstream
+would flag.
+
+One class of request is deliberately absent from the shipped log: the build
+polls `/.lab-health` to decide the server has started, and that path is excluded
+from both `CustomLog` directives. It carries no request id, and it is an
+artefact of the harness rather than traffic anyone sent. Nothing else Apache
+handles is excluded — including the malformed requests, the `CONNECT` attempts
+and the requests with no `Host` header, which are all a deliberate part of the
+data.
 
 ---
 

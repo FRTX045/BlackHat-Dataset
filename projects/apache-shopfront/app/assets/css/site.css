@@ -1,0 +1,20 @@
+/* Phase B placeholder stylesheet. Served by Apache from disk, not through PHP,
+   so conditional GETs return a real 304 with a real ETag rather than an
+   imitation of one. */
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a1a;
+    background: #fafafa;
+}
+
+h1 {
+    font-size: 1.5rem;
+    padding: 1rem;
+    margin: 0;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+p {
+    padding: 0 1rem;
+}

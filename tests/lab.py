@@ -136,17 +136,44 @@ def wait_for_lines(path, previous_count, expected=1, timeout=5.0):
         time.sleep(0.05)
 
 
-def wait_for_web(services=("web",), timeout=60):
-    """Bring the named services up and block until Apache answers."""
+#: SQL that puts the application back to the state a freshly seeded container
+#: has, without regenerating 130 product images.
+#:
+#: The database is bind-mounted, so it survives between runs -- and a build
+#: leaves it dirty in ways that break the tests silently. The credential_hunter
+#: campaign locks the demo account out, and every test that signs in as demo
+#: then gets a 429 rather than a 302. That is the application behaving exactly
+#: as designed; it is the tests that were assuming a clean slate they had never
+#: had to ask for.
+_RESET_SQL = (
+    "DELETE FROM login_attempts;"
+    "DELETE FROM users WHERE id > 4;"
+    "UPDATE users SET avatar = NULL;"
+)
+
+
+def reset_app_state():
+    """Undo whatever a previous build or test left behind in the application."""
+    compose("exec", "-T", "web", "sh", "-c",
+            "php -r '$p=new PDO(\"sqlite:/var/www/html/data/catalogue.sqlite\");"
+            f'$p->exec("{_RESET_SQL}");\' ; '
+            "rm -f /var/www/html/uploads/*")
+
+
+def wait_for_web(services=("web",), timeout=60, reset=True):
+    """Bring the named services up, block until Apache answers, reset state."""
     compose("up", "-d", "--build", *services)
     deadline = time.monotonic() + timeout
     while True:
         try:
             if request("lab_res", "203.0.113.90",
                        f"http://{WEB_RES}/.lab-health") == "200":
-                return
+                break
         except RuntimeError:
             pass
         if time.monotonic() > deadline:
             raise RuntimeError("web never became healthy")
         time.sleep(0.5)
+
+    if reset:
+        reset_app_state()

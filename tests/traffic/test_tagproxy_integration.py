@@ -83,7 +83,14 @@ class TestTagProxyAgainstApache(unittest.TestCase):
         self.assertIsNotNone(entry, f"no ledger record for {request_id}")
         self.assertEqual(entry["client_ip"], record["client_ip"])
         self.assertEqual(entry["path"], "/.git/config")
-        self.assertEqual(entry["actor"], "tool")
+
+        # The actor names *which* tool, not merely that it was one. A shared
+        # `tool` actor is what the port map used to carry, and it meant
+        # labels.py never matched its `tool:dirb` rule and labelled 98% of
+        # 9,293 tool requests `browsing`.
+        self.assertTrue(entry["actor"].startswith("tool:"),
+                        f"actor {entry['actor']!r} does not name the tool")
+        self.assertGreater(len(entry["actor"].split(":", 1)[1]), 0)
 
     def test_apache_records_the_tools_own_address_not_the_proxys(self):
         # The proxy declares the tool's real container address, and Apache

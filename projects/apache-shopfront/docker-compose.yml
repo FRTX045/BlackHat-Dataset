@@ -46,3 +46,30 @@ services:
         ipv4_address: 198.51.100.2
       lab_dc:
         ipv4_address: 192.0.2.2
+
+  tagproxy:
+    image: python:3.12-slim
+    # Stdlib only, so the stock image needs nothing added to it.
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/traffic/tagproxy.py
+      - --ports=/opt/logforge/projects/apache-shopfront/traffic/ports.json
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/tagproxy.jsonl
+    volumes:
+      # Read-only, with the ledger directory mounted back over it as the one
+      # writable path: this container's only side effect should be the record
+      # of what it forwarded.
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    depends_on:
+      - web
+    networks:
+      # On all three networks so a tool on any of them can reach it. It always
+      # talks to Apache over lab_res, though, because 203.0.113.3 is the
+      # address RemoteIPTrustedProxy names.
+      lab_res:
+        ipv4_address: 203.0.113.3
+      lab_cloud:
+        ipv4_address: 198.51.100.3
+      lab_dc:
+        ipv4_address: 192.0.2.3

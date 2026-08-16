@@ -1,0 +1,263 @@
+{
+  "kind": "logforge-manifest",
+  "version": 1,
+  "project": "apache-shopfront",
+  "tier": "medium",
+  "scenario_file": "projects/apache-shopfront/scenarios/medium.toml",
+  "seed": 19,
+  "commit": "f2025bc974ad267672552a79c6bf09995ec8abb9",
+  "commit_is_clean": true,
+  "started_at": "2026-08-16T18:41:24.852932+00:00",
+  "finished_at": "2026-08-16T18:53:29.722529+00:00",
+  "wall_clock_seconds": 724.87,
+  "base_image_digest": "logforge/apache-shopfront-web@sha256:c484783cc09a14cf9ded4eb703d0e7f0743468948da9b873e18a9e4e0ec5ee8a",
+  "lines": 249590,
+  "unmatched_request_ids": 484,
+  "unparsed_log_lines": 0,
+  "address_fallback_lines": 294,
+  "timestamps": {
+    "remapped": true,
+    "capture_file": "access.raw.log",
+    "capture_truth_file": "truth.raw.jsonl",
+    "start": "2026-03-09T00:02:20.580286+00:00",
+    "end": "2026-03-15T23:57:16.259660+00:00",
+    "span_seconds": 604495.679,
+    "captured_span_seconds": 692.0,
+    "sessions": 7219,
+    "sessions_pushed": 54,
+    "description": "Timestamps were rewritten: session starts redrawn from the diurnal and weekly curves, spacing within a session reconstructed from what each request was. Every other byte of every line, and the order of requests within a session, is as captured. access.raw.log is the log Apache wrote."
+  },
+  "audit": {
+    "tells_checked": 8,
+    "tells_fired": 1,
+    "inconclusive": 0,
+    "fired": [
+      "perfectly_ordered_timestamps"
+    ],
+    "findings": [
+      {
+        "name": "round_response_sizes",
+        "measured": 0.04,
+        "threshold": 0.25,
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Share of response sizes that are exact multiples of 100. Real byte counts are near-uniform modulo ten, so about 1% is expected."
+      },
+      {
+        "name": "implausible_rate",
+        "measured": 0.413,
+        "threshold": 50.0,
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Mean requests per second across the log's whole span. A small application server sustaining more than this for the entire log is a harness, not a shop."
+      },
+      {
+        "name": "agent_monoculture",
+        "measured": 0.2025,
+        "threshold": 0.55,
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Share of requests made by the single most common User-Agent. One browser build dominating a whole log is a population that was drawn, not observed."
+      },
+      {
+        "name": "uniform_client_volumes",
+        "measured": 4.5132,
+        "threshold": 1.0,
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Coefficient of variation of per-client request counts. Real client populations are heavy-tailed and score well above 1; an evenly-drawn one scores near 0."
+      },
+      {
+        "name": "missing_response_classes",
+        "measured": [
+          200,
+          301,
+          302,
+          304,
+          400,
+          401,
+          403,
+          404,
+          429,
+          500,
+          504
+        ],
+        "threshold": "304 and 404 both present",
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Whether the status classes every public server produces are present. A log with no 304 has no caching, and one with no 404 has never been crawled or mistyped at. All present."
+      },
+      {
+        "name": "no_malformed_requests",
+        "measured": 106,
+        "threshold": 1,
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Count of request lines Apache could not parse into method, path and protocol. Real logs always have some."
+      },
+      {
+        "name": "perfectly_ordered_timestamps",
+        "measured": 0,
+        "threshold": 1,
+        "suspicious": true,
+        "inconclusive": false,
+        "explanation": "Count of lines whose timestamp precedes the line above them. A concurrent server always produces a few; none at all means a single writer, or that the file was sorted."
+      },
+      {
+        "name": "sequential_client_addresses",
+        "measured": 0.0468,
+        "threshold": 0.75,
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Share of client addresses whose numeric neighbour is also in the log. A handful is ordinary; most of them means the population was counted out rather than observed."
+      }
+    ]
+  },
+  "derived_vs_apache_combined": {
+    "compared_file": "access.raw.log",
+    "agreed": 249566,
+    "derived_lines": 249590,
+    "apache_lines": 249590,
+    "first_divergence": 3556,
+    "summary": "249566/249590 lines agreed; Apache's own log has 249590 lines; first divergence at line 3556"
+  },
+  "truth_validation_errors": [],
+  "tool_runs": [
+    {
+      "tool": "whatweb",
+      "run": "whatweb-root",
+      "version": "0.5.5-1",
+      "command": "whatweb -a 3 --colour=never --max-threads=4 --open-timeout=10 --read-timeout=15 http://192.0.2.3:8080/",
+      "source_ip": "192.0.2.32",
+      "network": "lab_dc",
+      "target": "the site root, fingerprinting",
+      "started_at": "2026-08-16T18:41:32.229639+00:00",
+      "finished_at": "2026-08-16T18:41:39.435813+00:00",
+      "seconds": 7.206,
+      "exit_code": 0,
+      "timed_out": false,
+      "requests": 6
+    },
+    {
+      "tool": "dirb",
+      "run": "dirb-common",
+      "version": "2.22+dfsg-5",
+      "command": "dirb http://198.51.100.3:8080/ /usr/share/dirb/wordlists/common.txt -S -r -z 10",
+      "source_ip": "198.51.100.31",
+      "network": "lab_cloud",
+      "target": "/ with dirb's common wordlist",
+      "started_at": "2026-08-16T18:41:32.230439+00:00",
+      "finished_at": "2026-08-16T18:42:36.102068+00:00",
+      "seconds": 63.872,
+      "exit_code": 0,
+      "timed_out": false,
+      "requests": 4619
+    },
+    {
+      "tool": "gobuster",
+      "run": "gobuster-common",
+      "version": "3.5.0-1+b1",
+      "command": "gobuster dir -u http://198.51.100.3:8080/ -w /usr/share/dirb/wordlists/common.txt -t 4 -q --no-color --timeout 10s",
+      "source_ip": "198.51.100.33",
+      "network": "lab_cloud",
+      "target": "/ with dirb's common wordlist, at four threads",
+      "started_at": "2026-08-16T18:41:32.231449+00:00",
+      "finished_at": "2026-08-16T18:41:42.879139+00:00",
+      "seconds": 10.648,
+      "exit_code": 0,
+      "timed_out": false,
+      "requests": 4615
+    },
+    {
+      "tool": "nmap",
+      "run": "nmap-http",
+      "version": "7.93+dfsg1-1",
+      "command": "nmap -Pn -p 8080 --script http-headers,http-methods,http-title 198.51.100.3",
+      "source_ip": "198.51.100.32",
+      "network": "lab_cloud",
+      "target": "the proxy's HTTP port with http-* NSE scripts",
+      "started_at": "2026-08-16T18:41:32.232353+00:00",
+      "finished_at": "2026-08-16T18:41:43.496698+00:00",
+      "seconds": 11.264,
+      "exit_code": 0,
+      "timed_out": false,
+      "requests": 8
+    },
+    {
+      "tool": "sqlmap",
+      "run": "sqlmap-search",
+      "version": "1.7.2-1",
+      "command": "sqlmap -u http://192.0.2.3:8080/search?q=oak --batch --level=2 --risk=1 --technique=BU --dbms=sqlite --flush-session --disable-coloring --timeout=10 --retries=1 --crawl=0",
+      "source_ip": "192.0.2.31",
+      "network": "lab_dc",
+      "target": "the planted SQL injection on /search",
+      "started_at": "2026-08-16T18:41:32.234166+00:00",
+      "finished_at": "2026-08-16T18:41:37.123083+00:00",
+      "seconds": 4.889,
+      "exit_code": 0,
+      "timed_out": false,
+      "requests": 51
+    }
+  ],
+  "campaigns": [
+    {
+      "name": "patient_operator",
+      "succeeds": true,
+      "phases": [
+        "recon",
+        "directory_enumeration",
+        "sqli_probing",
+        "sqli_extraction",
+        "idor_walk"
+      ]
+    },
+    {
+      "name": "webshell_operator",
+      "succeeds": true,
+      "phases": [
+        "recon",
+        "forced_browsing",
+        "upload_webshell"
+      ]
+    },
+    {
+      "name": "blind_injector",
+      "succeeds": true,
+      "phases": [
+        "sqli_time_based",
+        "path_traversal",
+        "command_injection",
+        "ssti"
+      ]
+    },
+    {
+      "name": "metadata_hunter",
+      "succeeds": true,
+      "phases": [
+        "recon",
+        "forced_browsing",
+        "ssrf"
+      ]
+    },
+    {
+      "name": "credential_hunter",
+      "succeeds": false,
+      "phases": [
+        "recon",
+        "brute_force",
+        "credential_stuffing"
+      ]
+    },
+    {
+      "name": "fruitless_prober",
+      "succeeds": false,
+      "phases": [
+        "recon",
+        "directory_enumeration",
+        "verb_tampering",
+        "session_tampering",
+        "xss"
+      ]
+    }
+  ]
+}

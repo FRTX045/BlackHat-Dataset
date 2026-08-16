@@ -11,7 +11,13 @@ datasets/**/access.tagged.log
 datasets/**/access.apache.log
 datasets/**/error.log
 datasets/**/truth.jsonl
-datasets/**/*.log.zst
+# The truth file for the capture, when timestamps were remapped. Same size as
+# truth.jsonl and published the same way.
+datasets/**/truth.raw.jsonl
+# Release assets, built by tools/package.py and published rather than
+# committed. SHA256SUMS is regenerated with them.
+datasets/**/*.xz
+datasets/**/*.zst
 datasets/**/SHA256SUMS
 
 projects/*/server/logs/

@@ -200,32 +200,76 @@ only `unknown` records with that address.
 
 ## What is manipulated, and what is not
 
-A traffic run that takes twenty minutes produces a log spanning twenty minutes.
-A real investigation spans days. Both a multi-day span and real sub-second burst
-structure cannot come out of one wall-clock run, so the choice is made
-deliberately and per tier, and it is written down.
+A traffic run that takes three minutes produces a log spanning three minutes.
+A real investigation spans days. The timestamps are the one thing in this
+project that is rewritten rather than collected, and this section says exactly
+what is done to them and what it costs.
 
-| Tier | Timestamps |
+**What was wrong.** The driver plans its sessions across hours of virtual time
+and then issues the whole plan as fast as the sockets allow. A small run put
+seventy thousand requests inside a hundred and eighty seconds of wall clock,
+at four hundred requests a second, with the busiest second holding seven
+hundred and thirty-three. The *sequence* was right — every session, every
+cascade, every campaign phase in the order it was meant to happen — and the
+timing was unusable. Nothing rate-based, burst-based or session-duration-based
+could be studied on that file.
+
+**What is done now.** Both tiers are remapped, by
+[`shared/timeline/remap.py`](../shared/timeline/remap.py). Every line keeps
+every byte except the bracketed timestamp field.
+
+| | |
 |---|---|
-| `small` | **Untouched.** Real wall clock. The span is however long the run took. |
-| `medium` | **Idle gaps between sessions are stretched.** Timing *inside* a session is untouched. |
+| Session start | Redrawn from the same diurnal and weekly curves the driver plans against, one draw per session, handed out in a **shuffled** order |
+| Order within a session | As captured |
+| Spacing within a session | Reconstructed from what each request was |
+| One address's sessions | Kept in capture order, and never overlapping |
+| Everything else on the line | Byte for byte as Apache wrote it |
 
-The driver already schedules every session at a chosen virtual timestamp, so
-that schedule is the authority. Each line's new timestamp is
-`session_virtual_start + (line_real_time − session_real_start)`, which shifts
-whole sessions apart while leaving every interval within a session exactly as
-Apache recorded it. The asset cascades, the burst structure and the concurrency
-interleaving all survive intact.
+**Why the draws are shuffled.** Handing them out in capture order stamps the
+harness's own schedule onto the clock. The campaigns start with the driver and
+finish early; the noise generator runs last. Assigned in order, every campaign
+landed in the same hour of the rewritten day — and because attack sessions are
+short, that hour got a hole in its ordinary traffic as well. Measured on the
+first build: 44% of all attack lines inside two hours, sitting in the deepest
+trough of the day. Shuffling is what breaks that.
 
-Lines are then stable-sorted by the new timestamp. Because Apache's `%t` has
-one-second resolution, ties are common, and a stable sort preserves the original
-interleaving — so the small local disorder that real concurrency produces is not
-ironed out into a perfectly sorted log.
+**Why the draws are per session and not per address.** Drawing once per
+address and keeping each address's internal spacing from the capture looks
+more faithful and is not: `ippools` reuses addresses hard, so an address is
+not one actor but a succession of unrelated visitors spanning the whole run.
+Anchoring on the first of them made nearly every address as long as the
+window, which then had to be pulled back to fit — and 651 requests landed on
+the first second of the log.
+
+**The honest limit.** Spacing *within* a session is inferred from the truth
+labels: a subresource follows its page in milliseconds, a person reads for a
+few seconds before clicking, an operator waits longer because they are reading
+what came back. The capture's sub-second structure is gone, so the labels are
+the only signal left to rebuild pacing from. This is the one place in the
+project where a number in the shipped file was computed rather than observed,
+and it is stated in the manifest and in every dataset README that ships a
+remapped log.
+
+Two consequences worth naming, both of which the fake-log audit finds in our
+own data and both of which are published in the dataset README:
+
+- **The rewritten log is perfectly ordered.** A real prefork server interleaves
+  its writes and produces occasional out-of-order lines; ours has none,
+  because it was sorted. `access.raw.log` has them.
+- **The gap between an operator's campaign phases is redrawn, not preserved.**
+  Their order is preserved. A campaign is still one address working through
+  its phases in sequence; the hours between them come from the arrival model.
 
 When any remapping is applied:
 
-- the unmodified Apache output is kept in the dataset folder as `access.raw.log`
-- the mapping is described in `MANIFEST.json` in enough detail to reverse it
+- the unmodified Apache output is kept as `access.raw.log`, with its own
+  `truth.raw.jsonl`
+- `MANIFEST.json` carries a `timestamps` block naming which file is the
+  capture, both spans, and how many sessions had to be pushed
+- the derived-vs-Apache agreement check runs against `access.raw.log`, because
+  that check is about the labelling mechanism and would be meaningless against
+  a file whose timestamps and order deliberately changed
 - the dataset README says so plainly
 
 A rewritten log is never presented as a raw capture.
@@ -254,8 +298,18 @@ At least one campaign **fails**: probes for an hour, finds nothing, leaves. That
 is a common real case and it is almost absent from synthetic datasets.
 
 Attacks always overlap in time with normal traffic. An attack that runs while
-the site is otherwise idle is separable by timestamp alone and teaches nothing.
-The verifier checks this and fails if it is not true.
+the site is otherwise idle is separable by timestamp alone and teaches nothing,
+so the campaigns and tool runs are issued *concurrently* with the driver rather
+than before or after it.
+
+The verifier **reports** this rather than failing on it, in two forms, because
+one figure is not enough. The strict measure — attack lines sharing their exact
+second with an ordinary request — falls with the request rate for reasons that
+have nothing to do with how well the attack is hidden: a log at one request a
+second has almost no second holding two of anything. The second measure asks
+whether ordinary traffic was going on *within a minute either side*, which is
+what actually makes a timestamp filter useless, and it does not move with the
+rate. Both are printed with the window attached.
 
 ---
 
@@ -272,8 +326,20 @@ Everything needed to check the work is in the dataset folder.
 4. **Read `VULNERABILITIES.md`.** Every planted weakness is documented with what
    a successful exploit looks like in the log, so a detector's findings can be
    checked against ground truth rather than against an assumption.
-5. **Compare `access.raw.log`** against `access.log` if timestamps were remapped.
-6. **Read the log.** Two hundred lines by eye catches things no check does.
+5. **Compare `access.raw.log`** against `access.log` if timestamps were
+   remapped. `python3 tools/audit.py <dataset-dir> --compare access.raw.log`
+   runs the fake-log audit over both and prints them side by side, so the
+   difference between the two columns is exactly what the rewrite cost and
+   what it bought.
+6. **Run the fake-log audit.** `python3 tools/audit.py <dataset-dir> -v` runs
+   eight tells for whether a log looks generated — round-number response
+   sizes, an implausible request rate, user-agent monoculture, uniform client
+   volumes, missing status classes, an absence of malformed requests,
+   perfectly ordered timestamps, and client addresses counted out of a subnet.
+   It is pointed at our own datasets first and it does find things; what it
+   finds is in each dataset's README. It works on any Combined log, so it can
+   be pointed at a third-party dataset for comparison.
+7. **Read the log.** Two hundred lines by eye catches things no check does.
 
 ### On reproducibility
 

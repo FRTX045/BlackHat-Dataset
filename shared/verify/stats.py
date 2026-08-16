@@ -128,6 +128,38 @@ def inter_arrival(records):
     }
 
 
+def timespan(records):
+    """How long the log covers, and how fast it actually ran.
+
+    The statistic that catches a log issued as fast as the sockets allow.
+    Zero-gap share cannot do it: a page load is a dozen requests inside one
+    second, so that share is high on any busy real log and a threshold on it
+    would be tuning against a number that means nothing on its own. A rate of
+    three hundred requests a second against a small shop has no such innocent
+    reading.
+
+    `distinct_days` is here for the same reason: a log that never crosses
+    midnight cannot show a diurnal cycle no matter how well the arrivals were
+    modelled, and a consumer studying baselines needs to know that before they
+    start rather than after.
+    """
+    if not records:
+        return {"span_seconds": 0.0, "requests_per_second": None,
+                "busiest_second_requests": 0, "distinct_days": 0}
+
+    stamps = [r["ts"] for r in records]
+    span = (max(stamps) - min(stamps)).total_seconds()
+    per_second = collections.Counter(s.replace(microsecond=0) for s in stamps)
+    return {
+        "span_seconds": round(span, 3),
+        # None rather than a division by zero, and never a fabricated number:
+        # a log with no span has no rate to report.
+        "requests_per_second": round(len(records) / span, 4) if span else None,
+        "busiest_second_requests": max(per_second.values()),
+        "distinct_days": len({s.date() for s in stamps}),
+    }
+
+
 def category_shares(truth_records):
     counts = collections.Counter(r["category"] for r in truth_records)
     total = len(truth_records)
@@ -155,12 +187,30 @@ def episode_shape(truth_records):
     }
 
 
+#: Half-width of the window used by the second overlap measure, in seconds.
+#: Reported alongside the number, because a share with no window attached is
+#: not interpretable and changing it later would silently change what the
+#: published figure meant.
+OVERLAP_WINDOW = 30
+
+
 def attack_overlap(records, truth_records):
-    """How much of the attack traffic shares its second with ordinary traffic.
+    """Whether the attack traffic could be separated out on timing alone.
 
     An attack that occupies a quiet window of its own is separable by
     timestamp without reading a single request, which teaches a detector
-    nothing. This is the number that says whether that happened.
+    nothing. Two measures, because one is not enough:
+
+    `overlapping_share` is the strict one -- attack lines sharing their exact
+    second with an ordinary request. It is badly rate-dependent: a log at one
+    request a second has almost no second containing two of anything, so this
+    figure collapses as the log gets sparser whether or not the attack is
+    well hidden. Kept because it is the tightest statement that can be made.
+
+    `overlapping_share_within_60s` is the one that answers the question an
+    analyst asks -- was ordinary traffic going on *around* this request. That
+    is what makes a timestamp filter useless, and it does not move with the
+    rate.
     """
     hostile_seconds = collections.Counter()
     benign_seconds = collections.Counter()
@@ -173,13 +223,33 @@ def attack_overlap(records, truth_records):
 
     total_hostile = sum(hostile_seconds.values())
     if not total_hostile:
-        return {"attack_lines": 0, "overlapping_share": 0.0}
+        return {"attack_lines": 0, "overlapping_share": 0.0,
+                "overlapping_share_within_60s": 0.0,
+                "window_seconds": OVERLAP_WINDOW * 2}
+
     overlapping = sum(n for second, n in hostile_seconds.items()
                       if benign_seconds.get(second))
+
+    # One merge pass over both sorted second-lists rather than a search per
+    # attack line: at a million lines the per-line binary search is the
+    # difference between a second and a minute.
+    benign = sorted(benign_seconds)
+    near, cursor = 0, 0
+    for second in sorted(hostile_seconds):
+        while (cursor < len(benign)
+               and (second - benign[cursor]).total_seconds() > OVERLAP_WINDOW):
+            cursor += 1
+        if (cursor < len(benign)
+                and abs((benign[cursor] - second).total_seconds())
+                <= OVERLAP_WINDOW):
+            near += hostile_seconds[second]
+
     return {
         "attack_lines": total_hostile,
         "seconds_with_attacks": len(hostile_seconds),
         "overlapping_share": _share(overlapping, total_hostile),
+        "overlapping_share_within_60s": _share(near, total_hostile),
+        "window_seconds": OVERLAP_WINDOW * 2,
     }
 
 
@@ -194,6 +264,7 @@ def summarise(records, truth_records):
         "user_agents": user_agent_spread(records),
         "referer_share": referer_share(records),
         "inter_arrival": inter_arrival(records),
+        "timespan": timespan(records),
         "category_shares": category_shares(truth_records),
         "attack_share": attack_share(truth_records),
         "episodes": episode_shape(truth_records),

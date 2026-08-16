@@ -26,11 +26,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+from shared.timeline.remap import remap_files  # noqa: E402
 from shared.truth.join import join  # noqa: E402
 from shared.truth.reader import read_truth  # noqa: E402
 from shared.truth.validate import validate_records  # noqa: E402
 from shared.verify.agreement import compare_logs  # noqa: E402
 from shared.verify.stats import summarise  # noqa: E402
+from shared.verify.tells import audit, summary as audit_summary  # noqa: E402
 from tools import dataset_readme  # noqa: E402
 
 #: `large` is deliberately absent. It was excluded by decision and has never
@@ -128,9 +130,15 @@ class Stack:
     def down(self):
         self.compose("down", "-v", check=False)
 
-    def once(self, service, *args):
-        """Run a one-shot service to completion."""
-        self.compose("run", "--rm", "--no-deps", service, *args)
+    def once(self, service, *args, check=True):
+        """Run a one-shot service to completion, and return what it did.
+
+        `check=False` for the tools: nikto exits non-zero having found
+        nothing, sqlmap exits non-zero having been cut off, and neither is a
+        build failure. The exit code goes in the manifest instead.
+        """
+        return self.compose("run", "--rm", "--no-deps", service, *args,
+                            check=check)
 
     def wait_for_web(self, timeout=HEALTH_TIMEOUT):
         # Probed from inside the running container rather than from a new one:
@@ -155,6 +163,30 @@ class Stack:
 # The build
 # --------------------------------------------------------------------------
 
+def _requests_by_source(ledger):
+    """How many requests the tag proxy recorded from each address.
+
+    Read from the proxy's own ledger rather than from the tools' exit codes:
+    nikto exits 0 having found nothing and 0 having reached nothing, and the
+    difference is the whole question.
+    """
+    counts = {}
+    if not Path(ledger).exists():
+        return counts
+    with open(ledger, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                address = json.loads(line).get("client_ip")
+            except json.JSONDecodeError:
+                continue
+            if address:
+                counts[address] = counts.get(address, 0) + 1
+    return counts
+
+
 def _git(repo, *args):
     result = subprocess.run(["git", "-C", str(repo), *args],
                             capture_output=True, text=True)
@@ -174,9 +206,105 @@ def _image_digest(runner, image):
     return result.stdout.strip() or None
 
 
+def tool_run_record(run, *, version, command, started_at, finished_at,
+                    exit_code, requests):
+    """One row of the manifest's tool table, and of the README's.
+
+    `requests` is the count the tag proxy actually saw from this tool's
+    address. It is the field that stops the table being a claim: a tool that
+    was started, exited cleanly and reached nothing would otherwise appear
+    here indistinguishable from one that worked.
+    """
+    return {
+        "tool": run.binary,
+        "run": run.name,
+        "version": version,
+        "command": command,
+        "source_ip": run.address,
+        "network": run.network,
+        "target": run.target,
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "seconds": round((finished_at - started_at).total_seconds(), 3),
+        # 124 is what `timeout` returns when it cut the tool off. Recorded
+        # rather than smoothed over: it changes how the line count below
+        # should be read.
+        "exit_code": exit_code,
+        "timed_out": exit_code == 124,
+        "requests": requests,
+    }
+
+
+def tools_that_reached_nothing(records):
+    """Tool runs the proxy saw no request from.
+
+    A hard failure, not a warning. The attack runner once wrote 170
+    consecutive timeouts into the ledger as completed attacks because an
+    `OSError` was being swallowed, and the dataset said an attack happened
+    where nothing had. A tool that produced no traffic is the same mistake
+    wearing a different hat.
+    """
+    return [r["run"] for r in records if not r["requests"]]
+
+
+def audit_block(findings):
+    """The fake-log audit, as the manifest records it.
+
+    Every dataset ships with the result of the detector being run against
+    itself. The tells that fire on our own data -- a remapped log is sorted by
+    construction, our client addresses come from the documentation ranges --
+    are in here whether they flatter the dataset or not. A dataset that only
+    published the checks it passed would be worse than one that published no
+    checks, because the silence would read as a pass.
+    """
+    return {
+        **audit_summary(findings),
+        "findings": [
+            {"name": f.name, "measured": f.measured, "threshold": f.threshold,
+             "suspicious": f.suspicious, "inconclusive": f.inconclusive,
+             "explanation": f.explanation}
+            for f in findings],
+    }
+
+
+def timestamp_block(remap):
+    """What the manifest says about the clock.
+
+    Always present, and always explicit about which of the two files is the
+    capture. A dataset whose timestamps were rewritten and whose manifest is
+    silent about it is a dataset that will be read as a capture, which is the
+    one thing a rewritten log must never be taken for.
+    """
+    if remap is None:
+        return {
+            "remapped": False,
+            "capture_file": "access.log",
+            "note": ("Timestamps are exactly as Apache wrote them. The driver "
+                     "issues its whole plan as fast as the sockets allow, so "
+                     "the request sequence is meaningful and the timing is "
+                     "not -- see the achieved rate under realism."),
+        }
+    return {
+        "remapped": True,
+        "capture_file": "access.raw.log",
+        "capture_truth_file": "truth.raw.jsonl",
+        "start": remap.start,
+        "end": remap.end,
+        "span_seconds": round(remap.new_span_seconds, 3),
+        "captured_span_seconds": round(remap.original_span_seconds, 3),
+        "sessions": remap.episodes,
+        # Sessions whose drawn start collided with the same address's previous
+        # session and were pushed later. A large share means the window is too
+        # short for the traffic in it, and the arrival curve has been distorted.
+        "sessions_pushed": remap.episodes_pushed,
+        "description": remap.description,
+    }
+
+
 def build_manifest(*, project, tier, scenario, scenario_path, started_at,
                    finished_at, report, agreement, truth_errors, repo,
-                   base_image_digest, tool_runs, campaigns=()):
+                   base_image_digest, tool_runs, campaigns=(), remap=None,
+                   tells=()):
     """Assemble the record of how this dataset came to exist."""
     return {
         "kind": "logforge-manifest",
@@ -202,7 +330,15 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         # address instead. A weaker mechanism than the id, reported apart from
         # it so nobody has to assume which one produced a given label.
         "address_fallback_lines": report.address_fallback_lines,
+        "timestamps": timestamp_block(remap),
+        "audit": audit_block(tells),
         "derived_vs_apache_combined": {
+            # Named explicitly: once timestamps are remapped this check runs
+            # against the capture, not the shipped log. Comparing a rewritten
+            # log with Apache's own would report a divergence on every line
+            # and prove nothing about the labelling mechanism, which is the
+            # only thing the check is about.
+            "compared_file": ("access.raw.log" if remap else "access.log"),
             "agreed": agreement.agreed,
             "derived_lines": agreement.derived_lines,
             "apache_lines": agreement.reference_lines,
@@ -314,11 +450,98 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             f"--count={traffic.get('noise_requests', 40)}",
             "--pause=0.02")
 
-    def drive_and_attack():
-        """Ordinary traffic and attack campaigns, at the same time."""
+    def run_tools():
+        """Real security tools, pointed at the tag proxy, alongside everything
+        else.
+
+        Concurrent with the ordinary traffic for the same reason the campaigns
+        are: a tool run that owns a quiet window is separable by timestamp
+        without reading a request.
+        """
+        wanted = scenario.get("attacks", {}).get("tools", [])
+        state["tool_runs"] = []
+        if not wanted:
+            return
+
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            jobs = [pool.submit(drive), pool.submit(run_campaigns)]
+
+        sys.path.insert(0, str(project_dir / "attacks"))
+        from toolruns import (TOOL_RUNS, command_line,  # noqa: PLC0415
+                              container_argv, service_for)
+
+        declared = {run.name: run for run in TOOL_RUNS}
+        unknown = [name for name in wanted if name not in declared]
+        if unknown:
+            raise BuildError(
+                f"the scenario asks for tool run(s) {', '.join(unknown)}, "
+                f"which are not declared in attacks/toolruns.py")
+        runs = [declared[name] for name in wanted]
+
+        # Explicitly, before anything is run. `compose run` does not build a
+        # missing image, it tries to pull one -- and the pull fails against a
+        # tag that only exists here. The first build of this step recorded
+        # five tools as having produced no requests, which was true and for
+        # this reason.
+        stack.compose("build", *sorted({service_for(r) for r in runs}))
+
+        # Versions from dpkg rather than each tool's own --version flag: five
+        # tools have five formats, and the Debian archive is what the image
+        # actually pins.
+        probe = stack.once(service_for(runs[0]), "dpkg-query", "-W",
+                           *sorted({r.binary for r in runs}), check=False)
+        versions = dict(
+            line.split("\t", 1) for line in probe.stdout.splitlines()
+            if "\t" in line)
+
+        results = {}
+
+        def one(run):
+            began = datetime.now(timezone.utc)
+            outcome = stack.once(service_for(run), *container_argv(run),
+                                 check=False)
+            results[run.name] = (began, datetime.now(timezone.utc),
+                                 outcome.returncode, outcome.stderr)
+
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(runs)) as pool:
+            for outcome in concurrent.futures.as_completed(
+                    [pool.submit(one, run) for run in runs]):
+                outcome.result()
+
+        seen = _requests_by_source(proxy_ledger)
+        state["tool_runs"] = [
+            tool_run_record(
+                run, version=versions.get(run.binary),
+                command=command_line(run),
+                started_at=results[run.name][0],
+                finished_at=results[run.name][1],
+                exit_code=results[run.name][2],
+                requests=seen.get(run.address, 0))
+            for run in runs]
+
+        silent = tools_that_reached_nothing(state["tool_runs"])
+        if silent:
+            # With what the tool said. `check=False` is what lets a non-zero
+            # exit be an ordinary outcome, and it also means nothing else in
+            # the build would ever print the reason.
+            lines = []
+            for name in silent:
+                stderr = (results[name][3] or "").strip().splitlines()
+                said = stderr[-1][:160] if stderr else "no stderr"
+                lines.append(f"  {name}: exit {results[name][2]}, {said}")
+            why = "\n".join(lines)
+            raise BuildError(
+                f"tool run(s) {', '.join(silent)} produced no requests at "
+                f"all. Recording them as having run would put attacks in the "
+                f"dataset that never happened.\n{why}")
+
+    def drive_and_attack():
+        """Ordinary traffic, attack campaigns and tool runs, at the same
+        time."""
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            jobs = [pool.submit(drive), pool.submit(run_campaigns),
+                    pool.submit(run_tools)]
             for outcome in concurrent.futures.as_completed(jobs):
                 outcome.result()
 
@@ -348,20 +571,48 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
                  kind=scenario.get("kind", "weblog-truth")),
             labeller=categorise, address_fallback=address_fallback)
 
+    def remap_clock():
+        """Put the captured log on a realistic clock, keeping the capture.
+
+        Runs after the join and before every check, so what gets validated and
+        measured is what actually ships. The capture keeps the name
+        `access.raw.log` and its own truth file, because the agreement check
+        against Apache's independently written log is about the labelling
+        mechanism and has to run on unrewritten bytes.
+        """
+        timeline = scenario.get("timeline", {})
+        if not timeline.get("remap"):
+            state["remap"] = None
+            return
+        for name in ("access.log", "truth.jsonl"):
+            raw = name.replace(".log", ".raw.log").replace(
+                ".jsonl", ".raw.jsonl")
+            (out / name).replace(out / raw)
+        state["remap"] = remap_files(
+            out / "access.raw.log", out / "truth.raw.jsonl",
+            out / "access.log", out / "truth.jsonl",
+            start=datetime.fromisoformat(timeline["start"]),
+            duration_seconds=timeline["duration_seconds"],
+            seed=scenario["seed"])
+
     def check():
         _, records = read_truth(out / "truth.jsonl")
         ips = (line.split(" ", 1)[0]
                for line in (out / "access.log").read_text().splitlines())
         errors = validate_records(records, ips)
         state["truth_errors"] = errors
-        state["agreement"] = compare_logs(out / "access.log",
-                                          out / "access.apache.log")
+        capture = out / ("access.raw.log" if state.get("remap")
+                         else "access.log")
+        state["agreement"] = compare_logs(capture, out / "access.apache.log")
 
         from shared.verify.combined import parse_line
         parsed = [parse_line(line) for line
                   in (out / "access.log").read_text().splitlines()]
         _, again = read_truth(out / "truth.jsonl")
-        state["stats"] = summarise([p for p in parsed if p], list(again))
+        good = [p for p in parsed if p]
+        state["stats"] = summarise(good, list(again))
+        # The detector, run against our own data, on the file that ships.
+        state["tells"] = audit(good)
         if errors:
             raise BuildError(
                 "the truth file does not describe the log it ships with:\n  "
@@ -418,7 +669,9 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             truth_errors=state["truth_errors"], repo=repo,
             base_image_digest=_image_digest(
                 runner, "logforge/apache-shopfront-web:dev"),
-            tool_runs=[], campaigns=state.get("campaign_outcomes", []))
+            tool_runs=state.get("tool_runs", []),
+            campaigns=state.get("campaign_outcomes", []),
+            remap=state.get("remap"), tells=state.get("tells", ()))
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 
@@ -428,6 +681,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         ("adding background noise", make_noise),
         ("collecting what Apache wrote", collect),
         ("joining the labels", label),
+        ("putting the log on a realistic clock", remap_clock),
         ("checking the result", check),
         ("writing the manifest", manifest),
         ("writing the dataset README", write_readme),
@@ -456,7 +710,22 @@ def main(argv=None):
     print(f"  unparsed log lines       {manifest['unparsed_log_lines']}")
     print(f"  labelled by address      {manifest['address_fallback_lines']}")
     print(f"  derived vs Apache        "
-          f"{manifest['derived_vs_apache_combined']['summary']}")
+          f"{manifest['derived_vs_apache_combined']['summary']} "
+          f"({manifest['derived_vs_apache_combined']['compared_file']})")
+    clock = manifest["timestamps"]
+    if clock["remapped"]:
+        print(f"  clock                    {clock['start']} .. {clock['end']}")
+        print(f"  sessions                 {clock['sessions']} "
+              f"({clock['sessions_pushed']} pushed to avoid overlap)")
+    else:
+        print("  clock                    as captured, not remapped")
+    fired = manifest["audit"]["fired"]
+    print(f"  fake-log tells fired     {len(fired)}"
+          + (f": {', '.join(fired)}" if fired else ""))
+    for record in manifest.get("tool_runs", []):
+        print(f"  {record['tool']:<24} {record['requests']} requests, "
+              f"exit {record['exit_code']}"
+              + (" (cut off)" if record["timed_out"] else ""))
     return 0
 
 

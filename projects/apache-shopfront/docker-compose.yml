@@ -188,3 +188,88 @@ services:
     networks:
       lab_cloud:
         ipv4_address: 198.51.100.23
+
+  # ------------------------------------------------------------------------
+  # Real security tools. One-shot, started with `compose run`, never `up`.
+  #
+  # Each one carries only an image, an address and the mount it needs. The
+  # command is supplied by `tools/build.py` from `attacks/toolruns.py`, which
+  # is also what the manifest records verbatim -- writing the argument vectors
+  # here as well would give the dataset two sources of truth about what ran,
+  # and the one in the manifest would eventually be the wrong one.
+  #
+  # Every tool is pointed at the tag proxy on :8080, never at Apache. Tools do
+  # not send our request-id header; the proxy stamps one on the way through,
+  # so a sqlmap request joins to its truth record as exactly as a driver
+  # request does. Peer mode means the address the proxy declares is the tool
+  # container's own, which is what makes the manifest's source-address column
+  # true rather than asserted.
+  #
+  # The default command below is never used by the build. It is a version
+  # query so that a service started by hand reports what it is and exits,
+  # instead of sitting there having attacked nothing.
+  tool-sqlmap-search:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "sqlmap"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.31
+
+  # whatweb rather than nikto: nikto was dropped from Debian and bookworm has
+  # no package for it, so there is no way to pin its version from the archive
+  # the way every other tool here is pinned.
+  tool-whatweb-root:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "whatweb"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.32
+
+  tool-hydra-login:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "hydra"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.33
+
+  tool-dirb-common:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "dirb"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.31
+
+  # Deliberately over the same wordlist dirb uses. Two tools covering
+  # identical ground leave visibly different traces, and a log holding both is
+  # a better test of whether a detector learned the tool or the behaviour.
+  tool-gobuster-common:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "gobuster"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.33
+
+  tool-nmap-http:
+    build: ./attacks
+    image: logforge/apache-shopfront-attacker:dev
+    command: ["dpkg-query", "-W", "nmap"]
+    volumes:
+      - ../..:/opt/logforge:ro
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.32

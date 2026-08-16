@@ -13,16 +13,24 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# sqlmap  - the SQL injection surface on /search
-# nikto   - general web server fingerprinting and known-file probing
-# dirb    - directory brute-forcing with a real wordlist
-# hydra   - credential attacks against /login
-# nmap    - service and http-* NSE scripts
-# curl    - hand-driven requests and the manual playbooks' fallback
-# python3 - runs the playbook runner, which is stdlib-only
+# sqlmap   - the SQL injection surface on /search
+# whatweb  - web server and framework fingerprinting
+# dirb     - directory brute-forcing with a real wordlist
+# gobuster - the same ground as dirb, with a visibly different signature
+# hydra    - credential attacks against /login
+# nmap     - service and http-* NSE scripts
+# curl     - hand-driven requests and the manual playbooks' fallback
+# python3  - runs the playbook runner, which is stdlib-only
+#
+# nikto is deliberately not here: it was dropped from Debian and bookworm has
+# no package for it. whatweb covers the fingerprinting it was doing, and the
+# hand-written recon playbook covers the known-file probing with better
+# labels. Installing it from upstream would make the version pin depend on a
+# release page instead of on the archive, which is the whole reason this image
+# uses distribution packages.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      sqlmap nikto dirb hydra nmap curl ca-certificates python3 \
+      sqlmap whatweb dirb gobuster hydra nmap curl ca-certificates python3 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/logforge

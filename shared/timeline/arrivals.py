@@ -56,6 +56,59 @@ def intensity(when, base_rate):
     return base_rate * diurnal(when.hour, when.minute) * weekly(when.weekday())
 
 
+#: Resolution of the cumulative-intensity table used by
+#: `arrival_times_for_count`. One minute: the diurnal curve is interpolated
+#: between hours, so it moves far too slowly for a finer grid to say anything
+#: the coarser one does not.
+_GRID_SECONDS = 60
+
+
+def arrival_times_for_count(start, duration_seconds, count, seed):
+    """Return exactly ``count`` arrival instants over a window, in order.
+
+    `arrival_times` runs the process forward and returns however many arrivals
+    it produced, which is the right thing when the *rate* is what you know.
+    Sometimes the count is what you know instead -- the timestamp remap has one
+    session already in hand for every start it needs, and taking a prefix of a
+    thinned draw would pile every session into the beginning of the window.
+
+    Conditioned on there being exactly n arrivals, an inhomogeneous Poisson
+    process places them as n independent draws from the intensity curve treated
+    as a density. So that is what this does: build the cumulative intensity,
+    draw n uniforms, push them back through it, and sort. The shape is the same
+    curve `arrival_times` follows; only the count is fixed rather than random.
+    """
+    if count <= 0:
+        return []
+
+    steps = max(1, int(math.ceil(duration_seconds / _GRID_SECONDS)))
+    step = duration_seconds / steps
+
+    # Cumulative intensity at each grid edge. base_rate cancels out once the
+    # table is normalised, so it is left out rather than invented.
+    cumulative = [0.0]
+    for k in range(steps):
+        mid = start + timedelta(seconds=(k + 0.5) * step)
+        cumulative.append(cumulative[-1]
+                          + diurnal(mid.hour, mid.minute) * weekly(mid.weekday())
+                          * step)
+    total = cumulative[-1]
+
+    rng = random.Random(seed)
+    draws = sorted(rng.random() * total for _ in range(count))
+
+    times = []
+    k = 0
+    for target in draws:
+        while k + 1 < steps and cumulative[k + 1] < target:
+            k += 1
+        band = cumulative[k + 1] - cumulative[k]
+        # Linear within the band: the curve is already linear between hours.
+        offset = (k + (target - cumulative[k]) / band if band else k) * step
+        times.append(start + timedelta(seconds=min(offset, duration_seconds)))
+    return times
+
+
 def arrival_times(start, duration_seconds, base_rate, seed):
     """Return the arrival instants over a window, in order.
 

@@ -19,3 +19,12 @@ projects/*/traffic/ledger/
 projects/*/app/data/*.sqlite
 projects/*/app/uploads/*
 !projects/*/app/uploads/.gitkeep
+
+# Catalogue assets, generated deterministically from the run seed by the
+# container entrypoint. Twenty-odd megabytes of binary that the seed reproduces
+# exactly, so the repository carries the recipe rather than the output.
+projects/*/app/assets/img/p/*
+projects/*/app/assets/img/logo.png
+projects/*/app/assets/fonts/*.woff2
+projects/*/app/favicon.ico
+projects/*/app/apple-touch-icon.png

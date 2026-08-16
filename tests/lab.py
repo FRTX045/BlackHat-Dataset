@@ -35,8 +35,12 @@ DOCKER_AVAILABLE = os.environ.get("LOGFORGE_DOCKER") == "1"
 
 
 def docker(*args, **kwargs):
+    # errors="replace": responses whose body is an image or an icon are not
+    # valid UTF-8, and a helper that raised on them would make every binary
+    # asset untestable.
     return subprocess.run(
-        ["docker", *args], capture_output=True, text=True, **kwargs)
+        ["docker", *args], capture_output=True, text=True,
+        errors="replace", **kwargs)
 
 
 def compose(*args):
@@ -63,6 +67,35 @@ def request(network, source_ip, url, headers=(), extra=()):
     if result.returncode != 0:
         raise RuntimeError(f"request from {source_ip} failed: {result.stderr}")
     return result.stdout.strip()
+
+
+def fetch(url, source_ip="203.0.113.90", network="lab_res", headers=(), extra=()):
+    """Return (status, body) for one request. Body is text."""
+    argv = ["run", "--rm", "--network", network, "--ip", source_ip,
+            "--entrypoint", "curl", IMAGE, "-s", "-w", "\\n%{http_code}", *extra]
+    for header in headers:
+        argv += ["-H", header]
+    argv.append(url)
+    result = docker(*argv)
+    if result.returncode != 0:
+        raise RuntimeError(f"request for {url} failed: {result.stderr}")
+    body, _, status = result.stdout.rpartition("\n")
+    return status.strip(), body
+
+
+def in_container(script, source_ip="203.0.113.90", network="lab_res"):
+    """Run a shell snippet in one throwaway container on a lab network.
+
+    Anything needing a session has to go through this rather than repeated
+    `request()` calls: each `docker run` is a fresh container, so a cookie jar
+    written by one call is gone by the next. Logging in and then acting as the
+    logged-in user is one invocation, sharing /tmp/jar.
+    """
+    result = docker("run", "--rm", "--network", network, "--ip", source_ip,
+                    "--entrypoint", "sh", IMAGE, "-c", script)
+    if result.returncode != 0:
+        raise RuntimeError(f"container script failed: {result.stderr}")
+    return result.stdout
 
 
 def response_headers(network, source_ip, url):

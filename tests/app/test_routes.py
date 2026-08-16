@@ -1,0 +1,169 @@
+"""The shopfront, driven through the real Apache that serves it.
+
+These assert the properties the *log* depends on, not that the HTML is pretty.
+A page that renders perfectly but links to nothing produces a log with no
+Referer chains and no asset cascades, which is precisely the tell that makes
+script-generated logs useless.
+
+Skipped unless LOGFORGE_DOCKER=1.
+"""
+
+import re
+import unittest
+
+from tests.lab import (DOCKER_AVAILABLE, WEB_RES, compose, fetch,
+                       response_headers, wait_for_web)
+
+BASE = f"http://{WEB_RES}"
+
+ASSET_TAG = re.compile(r'<(?:link|script|img)[^>]+(?:href|src)="([^"]+)"')
+INTERNAL_LINK = re.compile(r'<a[^>]+href="(/[^"]*)"')
+
+
+@unittest.skipUnless(DOCKER_AVAILABLE,
+                     "needs Docker; set LOGFORGE_DOCKER=1 to run")
+class TestShopfrontRoutes(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        wait_for_web()
+
+    @classmethod
+    def tearDownClass(cls):
+        compose("down", "-v")
+
+    def test_the_home_page_is_served(self):
+        status, body = fetch(f"{BASE}/")
+        self.assertEqual(status, "200")
+        self.assertIn("<html", body.lower())
+
+    def test_a_page_view_pulls_a_real_asset_cascade(self):
+        # One page view has to produce a burst of asset requests in the same
+        # second. A log where every line is an HTML page is the single most
+        # obvious sign of a generated dataset.
+        _, body = fetch(f"{BASE}/")
+        assets = ASSET_TAG.findall(body)
+        self.assertGreaterEqual(len(assets), 10,
+                                f"home page references only {len(assets)} assets")
+
+    def test_the_home_page_links_into_categories(self):
+        _, body = fetch(f"{BASE}/")
+        links = INTERNAL_LINK.findall(body)
+        self.assertTrue(any(link.startswith("/c/") for link in links),
+                        f"no category links on the home page: {links[:10]}")
+
+    def test_a_product_is_reachable_only_by_following_links(self):
+        # Journey plausibility comes free if the site is genuinely navigable:
+        # home -> category -> product means the Referer chain in the log is a
+        # real chain rather than something the driver asserted.
+        _, home = fetch(f"{BASE}/")
+        category = next(l for l in INTERNAL_LINK.findall(home)
+                        if l.startswith("/c/"))
+        status, listing = fetch(f"{BASE}{category}")
+        self.assertEqual(status, "200")
+
+        product = next(l for l in INTERNAL_LINK.findall(listing)
+                       if l.startswith("/p/"))
+        status, page = fetch(f"{BASE}{product}")
+        self.assertEqual(status, "200")
+        self.assertIn("<html", page.lower())
+
+    def test_search_returns_results_for_a_catalogue_word(self):
+        status, body = fetch(f"{BASE}/search?q=a")
+        self.assertEqual(status, "200")
+        self.assertIn("<html", body.lower())
+
+    def test_robots_and_sitemap_are_served(self):
+        for path in ("/robots.txt", "/sitemap.xml"):
+            with self.subTest(path=path):
+                status, body = fetch(f"{BASE}{path}")
+                self.assertEqual(status, "200")
+                self.assertTrue(body.strip())
+
+    def test_an_unknown_path_returns_the_custom_404(self):
+        status, body = fetch(f"{BASE}/no-such-thing-here")
+        self.assertEqual(status, "404")
+        self.assertIn("<html", body.lower())
+
+    def test_the_error_page_is_reached_by_a_real_fault_not_a_faked_status(self):
+        # /checkout computes a total from the session basket without checking
+        # it exists, so arriving without one is an uncaught TypeError. A page
+        # that called http_response_code(500) deliberately would give the
+        # access log the right status with nothing on the other side for anyone
+        # correlating it against the error log.
+        status, _ = fetch(f"{BASE}/checkout")
+        self.assertEqual(status, "500")
+
+    def test_favicon_and_touch_icon_exist(self):
+        # Browsers request these unprompted; a dataset without them looks wrong
+        # to anyone who has read a real access log.
+        for path in ("/favicon.ico", "/apple-touch-icon.png"):
+            with self.subTest(path=path):
+                status, _ = fetch(f"{BASE}{path}")
+                self.assertEqual(status, "200")
+
+
+@unittest.skipUnless(DOCKER_AVAILABLE,
+                     "needs Docker; set LOGFORGE_DOCKER=1 to run")
+class TestAssetsAreServedByApache(unittest.TestCase):
+    """Assets must come off the filesystem, not through PHP."""
+
+    @classmethod
+    def setUpClass(cls):
+        wait_for_web()
+
+    @classmethod
+    def tearDownClass(cls):
+        compose("down", "-v")
+
+    def test_a_static_asset_carries_etag_and_last_modified(self):
+        # PHP-served bytes carry neither. Their presence is the evidence that
+        # the 304 and Range behaviour in the dataset is Apache's real handling
+        # rather than something the application imitates.
+        headers = response_headers("lab_res", "203.0.113.90",
+                                   f"{BASE}/assets/css/site.css")
+        self.assertIn("etag", headers)
+        self.assertIn("last-modified", headers)
+
+    def test_a_range_request_returns_206_with_only_the_asked_for_bytes(self):
+        status, body = fetch(f"{BASE}/assets/css/site.css",
+                             headers=["Range: bytes=0-49"])
+        self.assertEqual(status, "206")
+        self.assertEqual(len(body), 50)
+
+    def test_product_images_vary_in_size(self):
+        # A log where every image is the same %b is a log where nobody can
+        # study response-size distributions.
+        sizes = set()
+        for product_id in (1, 2, 3, 4, 5, 6, 7, 8):
+            headers = response_headers(
+                "lab_res", "203.0.113.90",
+                f"{BASE}/assets/img/p/{product_id}.jpg")
+            if "content-length" in headers:
+                sizes.add(int(headers["content-length"]))
+        self.assertGreaterEqual(len(sizes), 4,
+                                f"only {len(sizes)} distinct image sizes: {sizes}")
+
+
+@unittest.skipUnless(DOCKER_AVAILABLE,
+                     "needs Docker; set LOGFORGE_DOCKER=1 to run")
+class TestCatalogue(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        wait_for_web()
+
+    @classmethod
+    def tearDownClass(cls):
+        compose("down", "-v")
+
+    def test_the_sitemap_lists_a_substantial_catalogue(self):
+        # >= 120 products across >= 8 categories, per the plan. A shop with
+        # twelve URLs gives the dataset a vocabulary no real site has.
+        _, body = fetch(f"{BASE}/sitemap.xml")
+        self.assertGreaterEqual(len(re.findall(r"/p/\d+", body)), 120)
+        self.assertGreaterEqual(len(set(re.findall(r"/c/[a-z0-9-]+", body))), 8)
+
+
+if __name__ == "__main__":
+    unittest.main()

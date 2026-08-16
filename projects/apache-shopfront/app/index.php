@@ -1,16 +1,24 @@
 <?php
-// Phase B placeholder. The real shopfront arrives in Phase C; this exists only
-// so Apache has something to serve while the labelling mechanism is proved.
+require __DIR__ . '/lib/db.php';
+require __DIR__ . '/lib/render.php';
+
+$featured = featured(12);
+layout_head('Tools and hardware');
 ?>
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Shopfront</title>
-<link rel="stylesheet" href="/assets/css/site.css">
-</head>
-<body>
-<h1>Shopfront</h1>
-<p>Placeholder page.</p>
-</body>
-</html>
+<h1>Fettle &amp; Co</h1>
+<p class="lede">Hardware chosen by people who use it. Everything in stock ships the same day.</p>
+
+<section class="grid">
+<?php foreach ($featured as $p) { product_card($p); } ?>
+</section>
+
+<section class="browse">
+  <h2>Browse by department</h2>
+  <ul>
+<?php foreach (categories() as $c): ?>
+    <li><a href="/c/<?= e($c['slug']) ?>"><?= e($c['name']) ?></a> — <?= e($c['blurb']) ?></li>
+<?php endforeach; ?>
+  </ul>
+</section>
+<?php
+layout_foot();

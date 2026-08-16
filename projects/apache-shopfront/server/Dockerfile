@@ -8,9 +8,11 @@ FROM php:8.3-apache
 #   go -- otherwise every line lands in Docker's log driver and the
 #   bind-mounted file stays empty.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libsqlite3-dev \
+ && apt-get install -y --no-install-recommends \
+      libsqlite3-dev libjpeg62-turbo-dev libpng-dev libfreetype6-dev \
  && rm -rf /var/lib/apt/lists/* \
- && docker-php-ext-install pdo pdo_sqlite \
+ && docker-php-ext-configure gd --with-jpeg --with-freetype \
+ && docker-php-ext-install pdo pdo_sqlite gd \
  && a2enmod remoteip rewrite headers deflate \
  && a2disconf other-vhosts-access-log \
  && rm -f /etc/apache2/sites-enabled/000-default.conf \
@@ -18,6 +20,7 @@ RUN apt-get update \
 
 COPY zz-logforge.conf /etc/apache2/conf-enabled/zz-logforge.conf
 COPY vhost.conf       /etc/apache2/sites-enabled/shopfront.conf
+COPY php.ini          /usr/local/etc/php/conf.d/zz-logforge.ini
 COPY entrypoint.sh    /usr/local/bin/logforge-entrypoint
 
 RUN chmod +x /usr/local/bin/logforge-entrypoint

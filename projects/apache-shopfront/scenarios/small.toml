@@ -27,10 +27,27 @@ concurrency = 32
 noise_requests = 120
 
 [personas]
-shopper = 0.30
-casual = 0.35
-returning = 0.10
-mobile = 0.15
+# Attack share came out at 1.17% against a 2-8% target with scanner at 0.05.
+# The lever is the scanner rather than the campaigns: real attack volume in an
+# access log is dominated by opportunistic scanning, not by targeted
+# intrusions, and a scanner session is a dozen requests with no asset cascade
+# behind it while a shopper session is fifty lines of which forty are images.
+shopper = 0.26
+casual = 0.29
+returning = 0.09
+mobile = 0.13
 crawler = 0.07
 monitor = 0.03
-scanner = 0.05
+scanner = 0.13
+
+[attacks]
+# Every campaign runs, concurrently with the ordinary traffic. Two of the six
+# are expected to come away with nothing, which is what most real attack
+# traffic looks like.
+campaigns = [
+    "patient_operator", "webshell_operator", "blind_injector",
+    "metadata_hunter", "credential_hunter", "fruitless_prober",
+]
+# Divide every operator pause by this. 1.0 would take the hour the playbook
+# timings describe; the small tier is for iteration.
+pace = 25.0

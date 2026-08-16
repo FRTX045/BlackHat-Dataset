@@ -109,3 +109,82 @@ services:
     networks:
       lab_res:
         ipv4_address: 203.0.113.6
+
+  attacker-patient-operator:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - patient_operator
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-patient_operator.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.21
+  attacker-webshell-operator:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - webshell_operator
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-webshell_operator.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.22
+  attacker-credential-hunter:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - credential_hunter
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-credential_hunter.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.23
+  attacker-blind-injector:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - blind_injector
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-blind_injector.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.21
+  attacker-metadata-hunter:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - metadata_hunter
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-metadata_hunter.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.22
+  attacker-fruitless-prober:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - fruitless_prober
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-fruitless_prober.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.23

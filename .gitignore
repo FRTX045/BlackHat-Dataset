@@ -6,6 +6,9 @@ __pycache__/
 datasets/**/access.log
 datasets/**/access.raw.log
 datasets/**/access.tagged.log
+# Apache's own combined log, kept beside the derived one so the verifier can
+# compare them and a reader can check the comparison.
+datasets/**/access.apache.log
 datasets/**/error.log
 datasets/**/truth.jsonl
 datasets/**/*.log.zst

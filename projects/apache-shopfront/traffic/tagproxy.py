@@ -249,7 +249,10 @@ async def _serve_connection(reader, writer, port_map, ledger):
 
 async def _main(port_map, ledger_path):
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(ledger_path, "a", encoding="utf-8") as fh:
+    # Truncated on start, matching the server's entrypoint: one container
+    # lifetime is one run, and a ledger inherited from the previous run would
+    # mislead anyone reading it.
+    with open(ledger_path, "w", encoding="utf-8") as fh:
         ledger = TagLedger(fh)
         servers = [
             await asyncio.start_server(

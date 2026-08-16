@@ -1,0 +1,24 @@
+# The fast-iteration tier. Timestamps are untouched: the log spans however long
+# the run actually took.
+#
+# Phase B values are placeholders sized for proving the machinery, not for
+# producing a dataset. Task 15 sets the real ones once the persona driver
+# exists and its achieved throughput has been measured.
+
+kind = "weblog-truth"
+seed = 7
+
+# What the finished small tier aims for. The Phase B driver issues ten fixed
+# requests and ignores these; they are here so the scenario contract is in
+# place before anything depends on it.
+target_lines = 50000
+duration_seconds = 600
+attack_share_target = 0.05
+
+[personas]
+shopper = 0.30
+casual = 0.35
+returning = 0.10
+mobile = 0.15
+crawler = 0.07
+monitor = 0.03

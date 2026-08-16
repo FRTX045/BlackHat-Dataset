@@ -91,7 +91,11 @@ def plan_requests():
 def run(ledger_path, base_url=UPSTREAM):
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     issued = 0
-    with open(ledger_path, "a", encoding="utf-8") as fh:
+    # Truncated, not appended: one process is one run, exactly as the server's
+    # entrypoint truncates the log files. A ledger carrying the previous run's
+    # entries would join cleanly against nothing and hide nothing, but it would
+    # grow without bound and mislead anyone reading it.
+    with open(ledger_path, "w", encoding="utf-8") as fh:
         for step in plan_requests():
             request_id = new_request_id()
             request = urllib.request.Request(

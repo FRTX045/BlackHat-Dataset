@@ -1,0 +1,18 @@
+# Build output. Full logs are published as release assets, not committed.
+__pycache__/
+*.pyc
+.venv/
+
+datasets/**/access.log
+datasets/**/access.raw.log
+datasets/**/access.tagged.log
+datasets/**/error.log
+datasets/**/truth.jsonl
+datasets/**/*.log.zst
+datasets/**/SHA256SUMS
+
+projects/*/server/logs/
+projects/*/traffic/ledger/
+projects/*/app/data/*.sqlite
+projects/*/app/uploads/*
+!projects/*/app/uploads/.gitkeep

@@ -120,10 +120,29 @@ the build refuses to finish if any tool produced no traffic at all. Which
 tools a given tier runs is a scenario decision, listed under `[attacks] tools`.
 
 Tools are pointed at the **tag proxy**, never at Apache directly, so each of
-their requests acquires a request id and one `nikto` run splits into
-`reconnaissance` and `injection` rather than taking a single blanket label.
+their requests acquires a request id and joins as exactly as a driver request.
+Each also gets **its own proxy port**, and that is what makes the label right:
+the proxy records the actor configured for the port, and `labels.py` decides a
+tool run's category from that actor rather than from individual requests,
+because no single request in a wordlist walk reveals that the activity is a
+wordlist walk.
+
+That was got wrong once and shipped. Every tool arrived on one shared port
+under the generic actor `tool`, the labeller never matched its `tool:dirb`
+rule, and **98% of 9,293 tool requests were labelled `browsing`** in two
+datasets — directory brute-forcing recorded as ordinary browsing. Both were
+rebuilt. Per-request labelling is simply unreliable for tools: sqlmap's boolean
+payloads carry no `UNION` and no `or 1=1`, so the payload regex catches about
+one request in forty-five.
+
 Every run is wrapped in `timeout`, and being cut off is recorded rather than
 smoothed over — it changes how that tool's line count should be read.
+
+The two tiers scan at different sizes. The one-day `small` tier uses dirb's
+959-word `small.txt`; the week-long `medium` tier uses the 4,614-word
+`common.txt`. Two full walks inside a single day put enumeration at 11% of the
+log and the attack share at 14% against a 2–8% target, and are more scanning
+than one small shop sees in a day.
 
 **`nikto` is not here, and not by choice.** It was dropped from Debian and
 bookworm has no package for it, so there is no way to pin its version from the

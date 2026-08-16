@@ -74,5 +74,10 @@ pace = 25.0
 # WWW-Authenticate header, producing about one request per run. The reason is
 # recorded beside the declaration. Credential attacks against that endpoint
 # come from the hand-written playbooks instead.
-tools = ["whatweb-root", "dirb-common", "gobuster-common", "nmap-http",
+#
+# The `-small` wordlist variants, not the `-common` ones: this tier covers a
+# single day, and two 4,614-word walks inside it put enumeration at 11% of the
+# log and the attack share at 14% against a 2-8% target. The medium tier has a
+# week to fit them into and uses the full list.
+tools = ["whatweb-root", "dirb-small", "gobuster-small", "nmap-http",
          "sqlmap-search"]

@@ -30,6 +30,8 @@ from shared.truth.join import join  # noqa: E402
 from shared.truth.reader import read_truth  # noqa: E402
 from shared.truth.validate import validate_records  # noqa: E402
 from shared.verify.agreement import compare_logs  # noqa: E402
+from shared.verify.stats import summarise  # noqa: E402
+from tools import dataset_readme  # noqa: E402
 
 #: `large` is deliberately absent. It was excluded by decision and has never
 #: been exercised; accepting it would run for hours and produce something
@@ -38,6 +40,10 @@ TIERS = ("small", "medium")
 
 WEB_HEALTH_URL = "http://203.0.113.2/.lab-health"
 HEALTH_TIMEOUT = 90
+
+#: Lines of the finished log committed alongside the source, so the shape
+#: of the data can be seen without downloading a release asset.
+SAMPLE_LINES = 5000
 
 
 class BuildError(RuntimeError):
@@ -170,7 +176,7 @@ def _image_digest(runner, image):
 
 def build_manifest(*, project, tier, scenario, scenario_path, started_at,
                    finished_at, report, agreement, truth_errors, repo,
-                   base_image_digest, tool_runs):
+                   base_image_digest, tool_runs, campaigns=()):
     """Assemble the record of how this dataset came to exist."""
     return {
         "kind": "logforge-manifest",
@@ -205,6 +211,7 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         },
         "truth_validation_errors": truth_errors,
         "tool_runs": tool_runs,
+        "campaigns": campaigns,
     }
 
 
@@ -260,6 +267,43 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             f"--concurrency={traffic.get('concurrency', 32)}",
             f"--personas={json.dumps(scenario.get('personas', {}))}")
 
+    def run_campaigns():
+        """Run every campaign at once, alongside the driver's traffic.
+
+        Concurrency here is the point. Attacks that occupy their own quiet
+        window in the log can be separated by timestamp without looking at a
+        single request, which teaches a detector nothing worth knowing.
+        """
+        import concurrent.futures
+
+        campaigns = scenario.get("attacks", {}).get("campaigns", [])
+        if not campaigns:
+            return
+
+        sys.path.insert(0, str(project_dir / "attacks"))
+        from campaigns import by_name  # noqa: PLC0415 - per-project module
+        state["campaign_outcomes"] = [
+            {"name": name, "succeeds": by_name(name).succeeds,
+             "phases": list(by_name(name).phases)}
+            for name in campaigns]
+        pace = scenario.get("attacks", {}).get("pace", 20.0)
+
+        def one(name):
+            service = "attacker-" + name.replace("_", "-")
+            stack.once(
+                service, "python",
+                "/opt/logforge/projects/apache-shopfront/attacks/runner.py",
+                name,
+                f"--ledger=/opt/logforge/projects/apache-shopfront/traffic/"
+                f"ledger/attack-{name}.jsonl",
+                f"--seed={scenario['seed']}", f"--pace={pace}")
+
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(campaigns)) as pool:
+            for outcome in concurrent.futures.as_completed(
+                    [pool.submit(one, name) for name in campaigns]):
+                outcome.result()
+
     def make_noise():
         traffic = scenario.get("traffic", {})
         stack.once(
@@ -269,6 +313,14 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             f"--seed={scenario['seed']}",
             f"--count={traffic.get('noise_requests', 40)}",
             "--pause=0.02")
+
+    def drive_and_attack():
+        """Ordinary traffic and attack campaigns, at the same time."""
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            jobs = [pool.submit(drive), pool.submit(run_campaigns)]
+            for outcome in concurrent.futures.as_completed(jobs):
+                outcome.result()
 
     def collect():
         for name in ("access.tagged.log", "error.log"):
@@ -284,6 +336,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
 
         present = [p for p in (driver_ledger, proxy_ledger, noise_ledger)
                    if p.exists()]
+        present += sorted(ledgers.glob("attack-*.jsonl"))
         if not present:
             raise BuildError(f"no ledgers were written under {ledgers}")
         state["report"] = join(
@@ -303,10 +356,57 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         state["truth_errors"] = errors
         state["agreement"] = compare_logs(out / "access.log",
                                           out / "access.apache.log")
+
+        from shared.verify.combined import parse_line
+        parsed = [parse_line(line) for line
+                  in (out / "access.log").read_text().splitlines()]
+        _, again = read_truth(out / "truth.jsonl")
+        state["stats"] = summarise([p for p in parsed if p], list(again))
         if errors:
             raise BuildError(
                 "the truth file does not describe the log it ships with:\n  "
                 + "\n  ".join(errors[:20]))
+
+    def write_sample():
+        """A committed slice of the dataset, for eyeballing without a download.
+
+        Taken from the middle rather than the head: the first few thousand
+        lines of a run are the driver warming up, with the campaigns barely
+        started, and a sample of those would misrepresent the whole.
+        """
+        lines = (out / "access.log").read_text(
+            encoding="utf-8", errors="replace").splitlines()
+        truth_lines = (out / "truth.jsonl").read_text(
+            encoding="utf-8").splitlines()
+        header, records = truth_lines[0], truth_lines[1:]
+
+        take = min(SAMPLE_LINES, len(lines))
+        start = max(0, (len(lines) - take) // 2)
+        stop = start + take
+
+        (out / "sample.log").write_text(
+            "\n".join(lines[start:stop]) + "\n", encoding="utf-8")
+
+        # Renumbered from 1 so the sample is a valid truth file in its own
+        # right rather than a fragment whose line numbers point at a file
+        # nobody has.
+        renumbered = []
+        for offset, raw in enumerate(records[start:stop], start=1):
+            record = json.loads(raw)
+            record["line_no"] = offset
+            renumbered.append(json.dumps(record, separators=(",", ":")))
+        sample_header = json.loads(header)
+        sample_header["source_file_id"] = "sample.log"
+        (out / "sample.truth.jsonl").write_text(
+            json.dumps(sample_header, separators=(",", ":")) + "\n"
+            + "\n".join(renumbered) + "\n", encoding="utf-8")
+
+    def write_readme():
+        dataset_readme.write(
+            out / "README.md", project=project, tier=tier,
+            manifest=state["manifest"], stats=state["stats"],
+            tool_runs=state["manifest"].get("tool_runs", []),
+            campaigns=state["manifest"].get("campaigns", []))
 
     def manifest():
         finished_at = datetime.now(timezone.utc)
@@ -318,18 +418,20 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             truth_errors=state["truth_errors"], repo=repo,
             base_image_digest=_image_digest(
                 runner, "logforge/apache-shopfront-web:dev"),
-            tool_runs=[])
+            tool_runs=[], campaigns=state.get("campaign_outcomes", []))
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 
     run_steps([
         ("bringing the stack up", bring_up),
-        ("driving traffic", drive),
+        ("driving traffic and attacks together", drive_and_attack),
         ("adding background noise", make_noise),
         ("collecting what Apache wrote", collect),
         ("joining the labels", label),
         ("checking the result", check),
         ("writing the manifest", manifest),
+        ("writing the dataset README", write_readme),
+        ("writing the committed sample", write_sample),
     ], teardown=stack.down)
 
     return out, state["manifest"]

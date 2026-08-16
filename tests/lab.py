@@ -83,6 +83,21 @@ def fetch(url, source_ip="203.0.113.90", network="lab_res", headers=(), extra=()
     return status.strip(), body
 
 
+def in_container(script, source_ip="203.0.113.90", network="lab_res"):
+    """Run a shell snippet in one throwaway container on a lab network.
+
+    Anything needing a session has to go through this rather than repeated
+    `request()` calls: each `docker run` is a fresh container, so a cookie jar
+    written by one call is gone by the next. Logging in and then acting as the
+    logged-in user is one invocation, sharing /tmp/jar.
+    """
+    result = docker("run", "--rm", "--network", network, "--ip", source_ip,
+                    "--entrypoint", "sh", IMAGE, "-c", script)
+    if result.returncode != 0:
+        raise RuntimeError(f"container script failed: {result.stderr}")
+    return result.stdout
+
+
 def response_headers(network, source_ip, url):
     """Return the response headers of one request, lowercased by name."""
     result = docker(

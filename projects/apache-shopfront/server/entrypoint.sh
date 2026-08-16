@@ -14,11 +14,13 @@ done
 # LOGFORGE_SEED, and regenerated rather than committed: 130 product photographs
 # are twenty-odd megabytes of binary that would bloat a public repository for
 # no benefit, and the same seed reproduces them exactly.
-if [ ! -f /var/www/html/data/catalogue.sqlite ]; then
-    php /var/www/html/seed/seed.php
-    chown -R www-data:www-data /var/www/html/data /var/www/html/assets/img \
-                               /var/www/html/assets/fonts /var/www/html/uploads
-fi
+# Run unconditionally: the seeder exits early when the database already matches
+# its schema version, and rebuilds when it does not. A database seeded before a
+# schema change would otherwise survive into the next run and make the
+# application 404 on tables the code believes exist.
+php /var/www/html/seed/seed.php
+chown -R www-data:www-data /var/www/html/data /var/www/html/assets/img \
+                           /var/www/html/assets/fonts /var/www/html/uploads
 
 # Start every run from empty logs. A build that inherited the previous run's
 # lines would ship a log whose truth file describes a different run, and

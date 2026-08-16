@@ -69,9 +69,28 @@ Committed to the repository:
 - `sample.log` — 5,000 lines, for eyeballing
 - `sample.truth.jsonl` — its matching truth records
 
-Published as release assets, `zstd`-compressed with a `SHA256SUMS`:
+Published as release assets, built by `tools/package.py`, `xz`-compressed with
+a `SHA256SUMS`:
 
-- the full `access.log`, `error.log` and `truth.jsonl`
+- the full `access.log` and `truth.jsonl`
+- `access.raw.log` and `truth.raw.jsonl` — the log the server actually wrote,
+  before timestamps were rewritten, and its truth file
+- `access.apache.log` — Apache's own independently written Combined log, so
+  the derived-vs-Apache comparison can be repeated
+- `access.tagged.log` and `error.log`
+
+`SHA256SUMS` covers **the uncompressed contents as well as the archives**, and
+the committed files too. A checksum over an archive proves the download
+arrived; a checksum over the contents proves the dataset is the one the
+manifest describes, and it survives recompression.
+
+```bash
+python3 tools/package.py datasets/apache-shopfront/<date>-<tier>
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+xz rather than zstd: `lzma` is in the standard library, so packaging needs
+nothing installed, which is the same rule every host entry point here follows.
 
 **Regeneration is the primary distribution channel.** Anyone with this
 repository runs one command and gets the dataset. Releases are a convenience.

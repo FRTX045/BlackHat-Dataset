@@ -144,6 +144,28 @@ handles is excluded — including the malformed requests, the `CONNECT` attempts
 and the requests with no `Host` header, which are all a deliberate part of the
 data.
 
+### Apache's own internal dummy connections
+
+Every real Apache log contains a handful of lines like this:
+
+```
+127.0.0.1 - - [...] "OPTIONS * HTTP/1.0" 200 - "-" "Apache/2.4.68 (Debian) ... (internal dummy connection)"
+```
+
+The parent process makes them to wake idle children. They are not client
+traffic, they carry no request id, and they come from `127.0.0.1` rather than
+any client range.
+
+**They are kept.** The log Apache wrote is the log that ships, and filtering
+these would make the file less like the real thing rather than more. They are
+labelled `unknown` — which is what that category is for — and they are the main
+reason a run reports a non-zero unmatched count. A small-tier run produces
+about one per few thousand lines.
+
+Anyone computing per-client statistics should expect them and exclude
+`127.0.0.1` explicitly; the truth file makes that trivial, because they are the
+only `unknown` records with that address.
+
 ---
 
 ## What is manipulated, and what is not

@@ -232,9 +232,23 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         # same. Nothing here has to remember to clean up after the last run.
         stack.up("web", "tagproxy")
         stack.wait_for_web()
+        # The catalogue is seeded from the run's seed, so a run with a
+        # different seed must not inherit the last one's products.
+        stack.compose("exec", "-T", "-e", f"LOGFORGE_SEED={scenario['seed']}",
+                      "web", "php", "/var/www/html/seed/seed.php", "--force")
 
     def drive():
-        stack.once("driver")
+        traffic = scenario.get("traffic", {})
+        stack.once(
+            "driver",
+            "python", "/opt/logforge/projects/apache-shopfront/traffic/driver.py",
+            "--ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/driver.jsonl",
+            "--catalogue=/opt/logforge/projects/apache-shopfront/app/data/catalogue.json",
+            f"--seed={scenario['seed']}",
+            f"--duration={traffic.get('duration_seconds', 300)}",
+            f"--rate={traffic.get('session_rate', 0.06)}",
+            f"--concurrency={traffic.get('concurrency', 32)}",
+            f"--personas={json.dumps(scenario.get('personas', {}))}")
 
     def collect():
         for name in ("access.tagged.log", "error.log"):

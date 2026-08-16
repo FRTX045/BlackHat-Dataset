@@ -309,5 +309,41 @@ fonts($root);
 
 $pdo->exec('PRAGMA user_version = ' . SCHEMA_VERSION);
 
+/*
+ * Publish the shape of the catalogue for the traffic driver.
+ *
+ * The driver has to know which products live in which category, or it cannot
+ * plan a journey that is possible -- and asking the running server for that
+ * would put harness requests in the dataset. Written beside the database, in
+ * the repository tree both containers mount.
+ */
+$manifest = ['categories' => [], 'users' => []];
+foreach ($pdo->query('SELECT id, slug FROM categories ORDER BY id') as $c) {
+    $in_category = $pdo->prepare(
+        'SELECT id FROM products WHERE category_id = ? ORDER BY id');
+    $in_category->execute([$c['id']]);
+    $manifest['categories'][] = [
+        'slug' => $c['slug'],
+        'products' => array_map('intval',
+                                $in_category->fetchAll(PDO::FETCH_COLUMN)),
+    ];
+}
+foreach (USERS as [$username, $email, $password, $role]) {
+    $orders = $pdo->prepare(
+        'SELECT o.id FROM orders o JOIN users u ON u.id = o.user_id
+          WHERE u.username = ? ORDER BY o.id');
+    $orders->execute([$username]);
+    $manifest['users'][] = [
+        'username' => $username,
+        // Present so the driver can sign in as a real customer. These are the
+        // same invented credentials seeded above; nothing here is a secret.
+        'password' => $password,
+        'role' => $role,
+        'orders' => array_map('intval', $orders->fetchAll(PDO::FETCH_COLUMN)),
+    ];
+}
+file_put_contents("$root/data/catalogue.json",
+                  json_encode($manifest, JSON_PRETTY_PRINT) . "\n");
+
 printf("seeded %d products across %d categories and %d accounts (seed %d, schema %d)\n",
        count($ids), count(CATEGORIES), count(USERS), seed_value(), SCHEMA_VERSION);

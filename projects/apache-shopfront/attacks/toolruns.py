@@ -18,14 +18,27 @@ and record each one verbatim: exact command line, source address, tool version,
 start and end time. A tool that appears in the dataset and not in the manifest
 is a hard failure of the provenance gate.
 
-**Which tools are here, and which are not.** The plan named nine. This image
-carries the six Debian packages: sqlmap, nikto, dirb, hydra and nmap, plus curl
-for hand-driven requests. `gobuster`, `ffuf` and `nuclei` are Go release
-binaries and `wpscan` is a Ruby gem; ZAP needs a JRE. Adding four download
-paths and a JVM to the image would triple its size and make the version pin
-depend on upstream release pages rather than on Debian's archive. Their
-absence is stated in the dataset README rather than papered over -- and the
-hand-written playbooks already cover the same ground with better labels.
+**Which tools are here, and which are not.** Checked against the archive
+rather than assumed, after an earlier version of this note got it wrong in
+both directions.
+
+Here: sqlmap, dirb, gobuster, hydra, nmap and whatweb, plus curl for
+hand-driven requests. All six are Debian packages, which is the version pin.
+
+`nikto` is **not** here, and not by choice: it was dropped from Debian and has
+no package in bookworm. `whatweb` covers the fingerprinting half of what nikto
+was doing in this image, and the hand-written `recon` playbook covers the
+known-file probing half with better labels.
+
+`gobuster` and `ffuf` *are* packaged, contrary to what this file used to say
+about them being Go release binaries needing their own download paths.
+gobuster is now included on that basis; ffuf is left out because it would
+duplicate gobuster and dirb against the same wordlist rather than add a
+distinct signature.
+
+Still absent: `nuclei` and `wpscan` (a Ruby gem), and ZAP, which needs a JRE.
+Adding a JVM would triple the image and make the pin depend on upstream
+release pages rather than on Debian's archive.
 
 Stdlib only.
 """
@@ -53,6 +66,12 @@ class ToolRun(NamedTuple):
     #: How its traffic should be labelled when the request itself is not
     #: self-describing. `labels.py` still decides per request where it can.
     actor: str
+    #: The ceiling on this run, in seconds. sqlmap and dirb will keep going
+    #: for as long as they are given, and a build that never returns is worse
+    #: than a manifest recording that a tool was cut off -- which is a true
+    #: fact about the run, and one a consumer needs in order to read the line
+    #: count that tool produced.
+    timeout_seconds: int = 120
 
 
 TOOL_RUNS = (
@@ -65,15 +84,37 @@ TOOL_RUNS = (
               "--timeout=10", "--retries=1", "--crawl=0"),
         network="lab_dc", address="192.0.2.31",
         target="the planted SQL injection on /search",
-        actor="tool:sqlmap"),
+        actor="tool:sqlmap",
+        # The longest of the five. Boolean and UNION techniques against one
+        # parameter is a small search, but sqlmap re-probes on every failure
+        # and the ceiling has to leave room for that.
+        timeout_seconds=240),
     ToolRun(
-        name="nikto-root",
-        binary="nikto",
-        argv=("nikto", "-h", "http://{proxy}:8080/", "-maxtime", "90s",
-              "-Tuning", "123b", "-nointeractive"),
+        name="whatweb-root",
+        binary="whatweb",
+        # Aggression 3 probes rather than only reading the first response,
+        # which is what makes it show up in a log as more than one line.
+        argv=("whatweb", "-a", "3", "--colour=never", "--max-threads=4",
+              "--open-timeout=10", "--read-timeout=15",
+              "http://{proxy}:8080/"),
         network="lab_dc", address="192.0.2.32",
-        target="the site root",
-        actor="tool:nikto"),
+        target="the site root, fingerprinting",
+        actor="tool:whatweb",
+        timeout_seconds=150),
+    ToolRun(
+        name="gobuster-common",
+        binary="gobuster",
+        # The same wordlist dirb uses, deliberately: two tools over identical
+        # ground leave visibly different traces -- different agent, different
+        # concurrency, different ordering -- and a log containing both is a
+        # better test of whether a detector learned the tool or the behaviour.
+        argv=("gobuster", "dir", "-u", "http://{proxy}:8080/",
+              "-w", "/usr/share/dirb/wordlists/common.txt",
+              "-t", "4", "-q", "--no-color", "--timeout", "10s"),
+        network="lab_cloud", address="198.51.100.33",
+        target="/ with dirb's common wordlist, at four threads",
+        actor="tool:gobuster",
+        timeout_seconds=180),
     ToolRun(
         name="dirb-common",
         binary="dirb",
@@ -81,7 +122,24 @@ TOOL_RUNS = (
               "/usr/share/dirb/wordlists/common.txt", "-S", "-r", "-z", "10"),
         network="lab_cloud", address="198.51.100.31",
         target="/ with dirb's common wordlist",
-        actor="tool:dirb"),
+        actor="tool:dirb",
+        # 4,600 words at a 10ms delay is about a minute if nothing stalls.
+        timeout_seconds=180),
+    # Declared, and deliberately not in any scenario's `tools` list.
+    #
+    # Measured: hydra 9.4's http-post-form module sends its first request and
+    # then blocks, whatever the failure condition is set to -- `F=`, a
+    # substring of the body, or `S=302` all behave the same. Three separate
+    # 40-second runs produced three requests between them. The login answers
+    # **401 with no `WWW-Authenticate` header**, which is a protocol violation
+    # on the application's side, and hydra appears to be waiting on the
+    # challenge that never comes.
+    #
+    # Kept here rather than deleted so the reason is recorded next to the
+    # invocation, and because fixing the header on the application side would
+    # change what the hardened login teaches. The hand-written `brute_force`
+    # and `credential_stuffing` playbooks cover the same endpoint with better
+    # labels, and the `credential_hunter` campaign is built around it.
     ToolRun(
         name="hydra-login",
         binary="hydra",
@@ -91,7 +149,10 @@ TOOL_RUNS = (
               "/login:username=^USER^&password=^PASS^:Those details"),
         network="lab_dc", address="192.0.2.33",
         target="POST /login",
-        actor="tool:hydra"),
+        actor="tool:hydra",
+        # -f stops at the first hit, and the hardened login locks the account
+        # after five failures, so this one ends quickly either way.
+        timeout_seconds=90),
     ToolRun(
         name="nmap-http",
         binary="nmap",
@@ -99,7 +160,8 @@ TOOL_RUNS = (
               "http-headers,http-methods,http-title", "{proxy}"),
         network="lab_cloud", address="198.51.100.32",
         target="the proxy's HTTP port with http-* NSE scripts",
-        actor="tool:nmap"),
+        actor="tool:nmap",
+        timeout_seconds=90),
 )
 
 
@@ -107,6 +169,25 @@ def argv_for(run):
     """The exact argument vector, with the proxy address substituted in."""
     proxy = PROXY[run.network]
     return tuple(arg.format(proxy=proxy) for arg in run.argv)
+
+
+def service_for(run):
+    """The compose service that carries this run's image and address."""
+    return f"tool-{run.name}"
+
+
+def container_argv(run):
+    """What the container is actually asked to execute.
+
+    The timeout wraps the invocation rather than being folded into it, so the
+    command line the manifest publishes is still the command line the tool
+    saw. `--kill-after` matters as much as the timeout: a tool that ignores
+    SIGTERM would otherwise sit there holding the static address the next run
+    needs, and the failure would surface as "address already in use" three
+    steps later with nothing pointing at the cause.
+    """
+    return ("timeout", "--kill-after=10", str(run.timeout_seconds),
+            *argv_for(run))
 
 
 def command_line(run):

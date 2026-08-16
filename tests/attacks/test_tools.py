@@ -14,7 +14,8 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[2]
            / "projects" / "apache-shopfront" / "attacks"))
 
-from toolruns import PROXY, TOOL_RUNS, argv_for, command_line  # noqa: E402
+from toolruns import (PROXY, TOOL_RUNS, argv_for,  # noqa: E402
+                      command_line, container_argv, service_for)
 
 LAB_PREFIXES = ("192.0.2.", "198.51.100.", "203.0.113.", "100.")
 
@@ -115,6 +116,83 @@ class TestCommandLines(unittest.TestCase):
         local = (Path(__file__).resolve().parents[2]
                  / wordlist.replace("/opt/logforge/", ""))
         self.assertTrue(local.is_file(), f"missing wordlist: {local}")
+
+
+class TestEveryRunIsBounded(unittest.TestCase):
+    """A tool with no ceiling on its runtime can hang a build indefinitely.
+
+    sqlmap and dirb in particular will keep going for as long as they are
+    given, and a build that never returns is worse than one that records a
+    tool as having been cut off -- which is a true fact about the run and
+    belongs in the manifest.
+    """
+
+    def test_every_run_declares_a_timeout(self):
+        for run in TOOL_RUNS:
+            with self.subTest(tool=run.name):
+                self.assertGreater(run.timeout_seconds, 0)
+
+    def test_no_single_tool_can_take_more_than_five_minutes(self):
+        for run in TOOL_RUNS:
+            with self.subTest(tool=run.name):
+                self.assertLessEqual(run.timeout_seconds, 300)
+
+    def test_the_container_argv_enforces_the_timeout(self):
+        for run in TOOL_RUNS:
+            argv = container_argv(run)
+            with self.subTest(tool=run.name):
+                self.assertEqual(argv[0], "timeout")
+                self.assertIn(str(run.timeout_seconds), argv[:4])
+
+    def test_the_tool_itself_is_still_run_verbatim(self):
+        # The timeout wrapper must not change the invocation the manifest
+        # publishes, or the command line in the dataset would not be the
+        # command line that ran.
+        for run in TOOL_RUNS:
+            argv = container_argv(run)
+            with self.subTest(tool=run.name):
+                self.assertEqual(tuple(argv[-len(argv_for(run)):]),
+                                 argv_for(run))
+
+    def test_a_kill_follows_the_timeout(self):
+        # A tool that ignores SIGTERM would otherwise sit there holding the
+        # static address the next run needs.
+        for run in TOOL_RUNS:
+            with self.subTest(tool=run.name):
+                self.assertTrue(any(a.startswith("--kill-after")
+                                    for a in container_argv(run)))
+
+
+class TestTheyMatchTheComposeFile(unittest.TestCase):
+    """Declarations and compose services have to agree, or the build starts a
+    service that does not exist and fails after the stack is already up."""
+
+    COMPOSE = (Path(__file__).resolve().parents[2] / "projects"
+               / "apache-shopfront" / "docker-compose.yml").read_text()
+
+    def test_every_run_has_a_compose_service(self):
+        for run in TOOL_RUNS:
+            with self.subTest(tool=run.name):
+                self.assertIn(f"  {service_for(run)}:", self.COMPOSE)
+
+    def test_the_compose_address_is_the_declared_one(self):
+        for run in TOOL_RUNS:
+            block = self.COMPOSE.split(f"  {service_for(run)}:", 1)[1]
+            with self.subTest(tool=run.name):
+                self.assertIn(f"ipv4_address: {run.address}",
+                              block.split("\n\n", 1)[0])
+
+    def test_the_compose_network_is_the_declared_one(self):
+        for run in TOOL_RUNS:
+            block = self.COMPOSE.split(f"  {service_for(run)}:", 1)[1]
+            with self.subTest(tool=run.name):
+                self.assertIn(f"{run.network}:", block.split("\n\n", 1)[0])
+
+    def test_no_tool_service_publishes_a_host_port(self):
+        for run in TOOL_RUNS:
+            block = self.COMPOSE.split(f"  {service_for(run)}:", 1)[1]
+            with self.subTest(tool=run.name):
+                self.assertNotIn("ports:", block.split("\n\n", 1)[0])
 
 
 if __name__ == "__main__":

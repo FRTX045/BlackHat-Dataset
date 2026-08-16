@@ -79,36 +79,66 @@ malformed enough that Apache rejects them before reading a header.
 
 ### Which tools produced the attack traffic
 
-> **As of this commit, no tool-driven traffic is in the shipped datasets.** The
-> attacker image and the five tool runs below are written and their
-> declarations are tested, but `tools/build.py` does not yet execute them. The
-> attack traffic in every dataset here is entirely hand-written. Each
-> dataset's own README states what actually ran in that build; this table
-> describes what the project is set up to run.
-
-Declared in [attacks/toolruns.py](attacks/toolruns.py), image in
-[attacks/Dockerfile](attacks/Dockerfile):
+Both hand-written campaigns and real tools. The campaigns are in
+[attacks/playbooks.py](attacks/playbooks.py); the tool runs are declared in
+[attacks/toolruns.py](attacks/toolruns.py) and their image is
+[attacks/Dockerfile](attacks/Dockerfile).
 
 | Tool | Version | Source IP | Invocations | What it was pointed at |
 |---|---|---|---|---|
 | sqlmap | pinned by Debian bookworm | 192.0.2.31 | 1 | the planted SQL injection on `/search` |
-| nikto | pinned by Debian bookworm | 192.0.2.32 | 1 | the site root |
+| whatweb | pinned by Debian bookworm | 192.0.2.32 | 1 | the site root, fingerprinting |
 | dirb | pinned by Debian bookworm | 198.51.100.31 | 1 | `/` with dirb's common wordlist |
-| hydra | pinned by Debian bookworm | 192.0.2.33 | 1 | `POST /login` |
+| gobuster | pinned by Debian bookworm | 198.51.100.33 | 1 | the same wordlist, at four threads |
 | nmap | pinned by Debian bookworm | 198.51.100.32 | 1 | the proxy's HTTP port, `http-*` NSE scripts |
 
-When they do run, every invocation is recorded in `MANIFEST.json` with its
-exact command line, source address, resolved version and time window, and the
-verifier fails if a tool in the manifest is missing from this table. Tools are
-pointed at the **tag proxy**, never at Apache directly, so each of their
-requests acquires a request id and one `nikto` run splits into
-`reconnaissance` and `injection` rather than taking a single blanket label.
+`dirb` and `gobuster` cover identical ground on purpose. Two tools over the
+same wordlist leave visibly different traces — different agent, different
+concurrency, different ordering — and a log holding both is a better test of
+whether a detector learned the tool or the behaviour.
 
-**Not included:** `gobuster`, `ffuf` and `nuclei` are Go release binaries,
-`wpscan` is a Ruby gem, and ZAP needs a JRE. Adding four download paths and a
-JVM would triple the image and make the version pin depend on upstream release
-pages rather than Debian's archive. The hand-written playbooks cover the same
-ground with better labels.
+**`hydra` is declared and does not run**, and this is worth stating rather than
+quietly omitting. Its `http-post-form` module sends one request and then
+blocks against this application, whatever failure condition it is given — `F=`
+with a body substring, or `S=302`, all behave alike. Three separate 40-second
+runs produced three requests between them. The cause looks to be that `/login`
+answers **401 with no `WWW-Authenticate` header**, which is a protocol
+violation on the application's side, and hydra waits for a challenge that never
+arrives. Fixing the header would change what the hardened login demonstrates,
+so the declaration stays in
+[attacks/toolruns.py](attacks/toolruns.py) with the reason beside it and no
+scenario lists it. Credential attacks against that endpoint come from the
+hand-written `brute_force` and `credential_stuffing` playbooks and the
+`credential_hunter` campaign, which produce better labels anyway.
+
+Every invocation is recorded in `MANIFEST.json` with its exact command line,
+source address, resolved version, time window, exit code and **the number of
+requests the proxy actually saw from it**. That last field is why the table is
+a record rather than a claim: a tool that started, exited cleanly and reached
+nothing would otherwise be indistinguishable here from one that worked, and
+the build refuses to finish if any tool produced no traffic at all. Which
+tools a given tier runs is a scenario decision, listed under `[attacks] tools`.
+
+Tools are pointed at the **tag proxy**, never at Apache directly, so each of
+their requests acquires a request id and one `nikto` run splits into
+`reconnaissance` and `injection` rather than taking a single blanket label.
+Every run is wrapped in `timeout`, and being cut off is recorded rather than
+smoothed over — it changes how that tool's line count should be read.
+
+**`nikto` is not here, and not by choice.** It was dropped from Debian and
+bookworm has no package for it, so there is no way to pin its version from the
+archive the way every other tool here is pinned. `whatweb` covers the
+fingerprinting half of what it was doing; the hand-written `recon` playbook
+covers the known-file probing half with better labels.
+
+**Also not included:** `ffuf`, which is packaged but would only duplicate
+gobuster and dirb over the same wordlist; `nuclei`; `wpscan`, a Ruby gem; and
+ZAP, which needs a JRE. A JVM would triple the image and make the version pin
+depend on an upstream release page rather than on Debian's archive.
+
+An earlier version of this section claimed `gobuster` and `ffuf` were Go
+release binaries with no Debian package. That was wrong — both are packaged in
+bookworm, which is why gobuster is now in the table above.
 
 Hand-written attacks are in [attacks/playbooks.py](attacks/playbooks.py) and are
 paced like a person, with pauses, wrong guesses and dead ends — the first UNION

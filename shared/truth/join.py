@@ -37,6 +37,10 @@ class JoinReport(NamedTuple):
     lines: int
     unmatched_ids: int
     unparsed_lines: int
+    #: Lines that carried no usable request id but were labelled by their
+    #: source address instead. Counted apart from unmatched_ids so the report
+    #: distinguishes "labelled by a weaker mechanism" from "not labelled".
+    address_fallback_lines: int
     derived_path: object
     truth_path: object
 
@@ -81,7 +85,7 @@ class _EpisodeCounter:
 
 
 def join(tagged_log_path, ledger_paths, truth_out, access_out, header_kwargs,
-         labeller=None):
+         labeller=None, address_fallback=None):
     """Derive access.log and truth.jsonl from the tagged log and the ledgers.
 
     Args:
@@ -94,6 +98,12 @@ def join(tagged_log_path, ledger_paths, truth_out, access_out, header_kwargs,
             entry carries none. The proxy cannot know whether a request is
             reconnaissance or injection; the project's labels module can tell
             from the request itself.
+        address_fallback: {client address: category} for lines that reach the
+            log with no usable request id. Apache rejects some malformed
+            shapes before mod_remoteip and before the header is read, so those
+            lines carry neither a declared address nor an id. They are issued
+            from addresses reserved for nothing else, which is what makes
+            labelling by address exact here and nowhere else.
 
     Returns:
         A JoinReport.
@@ -103,8 +113,15 @@ def join(tagged_log_path, ledger_paths, truth_out, access_out, header_kwargs,
             outside the controlled vocabulary.
     """
     entries = _load_ledgers(ledger_paths)
+    fallback = dict(address_fallback or {})
+    for address, category in fallback.items():
+        if category not in CATEGORIES:
+            raise ValueError(
+                f"address fallback for {address} names category {category!r}, "
+                f"which is not in the controlled vocabulary")
+
     episodes = _EpisodeCounter()
-    lines = unmatched = unparsed = 0
+    lines = unmatched = unparsed = fallback_lines = 0
 
     with open(tagged_log_path, "r", encoding="utf-8") as tagged, \
             open(access_out, "w", encoding="utf-8") as access, \
@@ -130,8 +147,11 @@ def join(tagged_log_path, ledger_paths, truth_out, access_out, header_kwargs,
             if entry is None:
                 unmatched += 1
                 client_ip = record["client_ip"] if record else NO_ID
-                writer.write(client_ip=client_ip, category=UNKNOWN,
-                             instance_id=episodes.id_for(client_ip, UNKNOWN))
+                category = fallback.get(client_ip, UNKNOWN)
+                if category is not UNKNOWN and client_ip in fallback:
+                    fallback_lines += 1
+                writer.write(client_ip=client_ip, category=category,
+                             instance_id=episodes.id_for(client_ip, category))
                 continue
 
             client_ip = entry["client_ip"]
@@ -160,5 +180,6 @@ def join(tagged_log_path, ledger_paths, truth_out, access_out, header_kwargs,
                          instance_id=instance_id)
 
     return JoinReport(lines=lines, unmatched_ids=unmatched,
-                      unparsed_lines=unparsed, derived_path=access_out,
-                      truth_path=truth_out)
+                      unparsed_lines=unparsed,
+                      address_fallback_lines=fallback_lines,
+                      derived_path=access_out, truth_path=truth_out)

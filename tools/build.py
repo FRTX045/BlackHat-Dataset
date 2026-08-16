@@ -192,6 +192,10 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         # of how good the labelling actually was.
         "unmatched_request_ids": report.unmatched_ids,
         "unparsed_log_lines": report.unparsed_lines,
+        # Lines with no usable request id that were labelled by their source
+        # address instead. A weaker mechanism than the id, reported apart from
+        # it so nobody has to assume which one produced a given label.
+        "address_fallback_lines": report.address_fallback_lines,
         "derived_vs_apache_combined": {
             "agreed": agreement.agreed,
             "derived_lines": agreement.derived_lines,
@@ -219,6 +223,12 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
     ledgers = project_dir / "traffic" / "ledger"
     driver_ledger = ledgers / "driver.jsonl"
     proxy_ledger = ledgers / "tagproxy.jsonl"
+    noise_ledger = ledgers / "noise.jsonl"
+
+    #: Addresses reserved for traffic Apache logs without a request id, and the
+    #: category to give those lines. Only the noise container ever uses this
+    #: address, which is what makes labelling by it exact rather than a guess.
+    address_fallback = {"203.0.113.6": "reconnaissance"}
 
     out = dataset_dir(repo, project, tier, started_at)
     out.mkdir(parents=True, exist_ok=True)
@@ -232,9 +242,33 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         # same. Nothing here has to remember to clean up after the last run.
         stack.up("web", "tagproxy")
         stack.wait_for_web()
+        # The catalogue is seeded from the run's seed, so a run with a
+        # different seed must not inherit the last one's products.
+        stack.compose("exec", "-T", "-e", f"LOGFORGE_SEED={scenario['seed']}",
+                      "web", "php", "/var/www/html/seed/seed.php", "--force")
 
     def drive():
-        stack.once("driver")
+        traffic = scenario.get("traffic", {})
+        stack.once(
+            "driver",
+            "python", "/opt/logforge/projects/apache-shopfront/traffic/driver.py",
+            "--ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/driver.jsonl",
+            "--catalogue=/opt/logforge/projects/apache-shopfront/app/data/catalogue.json",
+            f"--seed={scenario['seed']}",
+            f"--duration={traffic.get('duration_seconds', 300)}",
+            f"--rate={traffic.get('session_rate', 0.06)}",
+            f"--concurrency={traffic.get('concurrency', 32)}",
+            f"--personas={json.dumps(scenario.get('personas', {}))}")
+
+    def make_noise():
+        traffic = scenario.get("traffic", {})
+        stack.once(
+            "noise",
+            "python", "/opt/logforge/projects/apache-shopfront/traffic/noise.py",
+            "--ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/noise.jsonl",
+            f"--seed={scenario['seed']}",
+            f"--count={traffic.get('noise_requests', 40)}",
+            "--pause=0.02")
 
     def collect():
         for name in ("access.tagged.log", "error.log"):
@@ -248,7 +282,8 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         sys.path.insert(0, str(project_dir))
         from labels import categorise  # noqa: PLC0415 - per-project module
 
-        present = [p for p in (driver_ledger, proxy_ledger) if p.exists()]
+        present = [p for p in (driver_ledger, proxy_ledger, noise_ledger)
+                   if p.exists()]
         if not present:
             raise BuildError(f"no ledgers were written under {ledgers}")
         state["report"] = join(
@@ -258,7 +293,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
                  source_file_id="access.log",
                  generated_at=started_at.isoformat(),
                  kind=scenario.get("kind", "weblog-truth")),
-            labeller=categorise)
+            labeller=categorise, address_fallback=address_fallback)
 
     def check():
         _, records = read_truth(out / "truth.jsonl")
@@ -290,6 +325,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
     run_steps([
         ("bringing the stack up", bring_up),
         ("driving traffic", drive),
+        ("adding background noise", make_noise),
         ("collecting what Apache wrote", collect),
         ("joining the labels", label),
         ("checking the result", check),
@@ -316,6 +352,7 @@ def main(argv=None):
     print(f"  lines                    {manifest['lines']}")
     print(f"  unmatched request ids    {manifest['unmatched_request_ids']}")
     print(f"  unparsed log lines       {manifest['unparsed_log_lines']}")
+    print(f"  labelled by address      {manifest['address_fallback_lines']}")
     print(f"  derived vs Apache        "
           f"{manifest['derived_vs_apache_combined']['summary']}")
     return 0

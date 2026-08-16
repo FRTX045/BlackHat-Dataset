@@ -12,8 +12,19 @@ seed = 7
 # requests and ignores these; they are here so the scenario contract is in
 # place before anything depends on it.
 target_lines = 50000
-duration_seconds = 600
 attack_share_target = 0.05
+
+[traffic]
+# Virtual seconds of arrivals to plan, and session arrivals per virtual second.
+# The driver issues them as fast as it can; the virtual span is what the
+# medium-tier timestamp remap will later stretch. At this rate a small run is
+# a few thousand lines and takes well under a minute.
+duration_seconds = 7200
+session_rate = 0.22
+concurrency = 32
+
+# Malformed requests over raw sockets, from the reserved address.
+noise_requests = 120
 
 [personas]
 shopper = 0.30
@@ -22,3 +33,4 @@ returning = 0.10
 mobile = 0.15
 crawler = 0.07
 monitor = 0.03
+scanner = 0.05

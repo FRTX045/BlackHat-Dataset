@@ -84,6 +84,36 @@ The verifier compares it against the derived file on every build and **reports
 the agreement as a number** — `N/N lines agreed, in order`. The assumption is
 measured rather than trusted, and a divergence is published rather than hidden.
 
+### This is not hypothetical — it has been observed
+
+On a 75,676-line run at 32-way concurrency, the two logs **disagreed on two
+lines**:
+
+```
+line 14559  access.log         100.78.35.241 ... "GET /c/fasteners HTTP/1.1" 200 1440
+            access.apache.log  100.71.46.109 ... "GET /assets/img/p/110.jpg HTTP/1.1" 200 199843
+line 14560  access.log         100.71.46.109 ... "GET /assets/img/p/110.jpg HTTP/1.1" 200 199843
+            access.apache.log  100.78.35.241 ... "GET /c/fasteners HTTP/1.1" 200 1440
+```
+
+The two lines are **swapped**. Every other line agreed, and the two files
+contain exactly the same set of lines — the divergence is purely ordering. Two
+requests arriving in the same second, from different clients, handled by
+different Apache processes, were written to the two `CustomLog` files in
+opposite orders.
+
+Under the brief's positional join those two lines would have been labelled with
+**each other's** truth records: a category listing labelled `static_asset` and
+an image labelled `browsing`. Both labels would have looked entirely plausible,
+the line counts would still have matched, and no check anywhere would have
+noticed.
+
+The derived log cannot do this. Line N of the shipped log and line N of
+`truth.jsonl` come from the same physical line of the same file, so there is no
+ordering to get wrong. Two lines in 75,676 is a rate of 0.003% — small enough to
+be missed by inspection and large enough to matter in a dataset whose whole
+purpose is being scored against.
+
 ### Attack tools
 
 Security tools will not send our header. The usual fallback is to give each tool
@@ -143,6 +173,28 @@ artefact of the harness rather than traffic anyone sent. Nothing else Apache
 handles is excluded — including the malformed requests, the `CONNECT` attempts
 and the requests with no `Host` header, which are all a deliberate part of the
 data.
+
+### Apache's own internal dummy connections
+
+Every real Apache log contains a handful of lines like this:
+
+```
+127.0.0.1 - - [...] "OPTIONS * HTTP/1.0" 200 - "-" "Apache/2.4.68 (Debian) ... (internal dummy connection)"
+```
+
+The parent process makes them to wake idle children. They are not client
+traffic, they carry no request id, and they come from `127.0.0.1` rather than
+any client range.
+
+**They are kept.** The log Apache wrote is the log that ships, and filtering
+these would make the file less like the real thing rather than more. They are
+labelled `unknown` — which is what that category is for — and they are the main
+reason a run reports a non-zero unmatched count. A small-tier run produces
+about one per few thousand lines.
+
+Anyone computing per-client statistics should expect them and exclude
+`127.0.0.1` explicitly; the truth file makes that trivial, because they are the
+only `unknown` records with that address.
 
 ---
 

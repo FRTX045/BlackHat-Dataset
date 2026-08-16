@@ -1,139 +1,281 @@
-"""Phase B placeholder traffic driver.
+"""The persona-driven traffic driver.
 
-Ten requests with a fixed shape, issued sequentially, to prove the labelling
-machinery end to end. Task 15 replaces this with the persona-driven async
-driver; what it must not change is the two properties this one already has.
+Executes the session plan against the real Apache, one request at a time per
+visitor and many visitors at once. Every request declares its client address in
+X-Forwarded-For and carries a unique X-Request-Id, and every request writes a
+ledger record saying what it was meant to be. The driver is a trusted proxy as
+far as Apache is concerned, which is why 203.0.113.4 is in RemoteIPTrustedProxy.
 
-The driver is a **trusted proxy** as far as Apache is concerned: it declares
-each request's client address in X-Forwarded-For, and 203.0.113.4 is named in
-RemoteIPTrustedProxy. It also mints its own request id, so its traffic needs no
-tag proxy.
+Three properties are not negotiable:
 
-It states its own categories and episode ids rather than letting the join
-derive them, because unlike the proxy it knows what it meant. That makes
-episode contiguity its responsibility: ids are assigned in driver order, not
-log order, so **one client's sessions must never run concurrently**. Two
-overlapping sessions from one address would interleave in the log and the
-validator would reject the result -- correctly, and after the run.
+**One client, one session at a time.** Episode ids are assigned in driver order,
+not log order. Two concurrent sessions from one address would interleave in the
+log and the validator would reject the result -- correctly, and only after the
+run. A per-address lock prevents it.
 
-Stdlib only, by project rule.
+**Assets are discovered, not scripted.** After fetching an HTML page the driver
+requests the subresources that page actually references, the way a browser
+does. A list of asset URLs written down in advance would drift from the markup
+and would produce cascades that do not match the pages they came from.
+
+**Referer comes from where the visitor actually was.** Internal navigation
+carries the previous page as its Referer; only the first request of a visit
+carries an external one.
+
+Runs inside a container, so httpx is available here even though the host
+entry points are stdlib-only.
 """
 
 import argparse
+import asyncio
 import json
+import random
+import re
 import sys
-import urllib.error
-import urllib.request
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import NamedTuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+try:
+    import httpx
+except ImportError:  # pragma: no cover - the host has no third-party packages
+    # httpx lives in the driver image, not on the host. Guarding the import
+    # keeps the pure logic below -- episode assignment, asset selection --
+    # importable and testable by the ordinary suite, which has to run on a
+    # bare python3. Anything that actually issues a request needs the image.
+    httpx = None
 
+sys.path.insert(0, "/opt/logforge")
+
+from shared.clients.ippools import ClientPool  # noqa: E402
+from shared.clients.personas import (NO_REFERER, PERSONA_IDENTITY,  # noqa: E402
+                                     journey)
+from shared.clients.useragents import UserAgentPool  # noqa: E402
+from shared.timeline.sessions import plan_sessions  # noqa: E402
 from shared.truth.ids import new_request_id  # noqa: E402
 
-UPSTREAM = "http://203.0.113.2"
-
+BASE = "http://203.0.113.2"
+SITE = "http://shop.test"
 ACTOR = "driver"
 
+#: Subresources referenced by a page. Deliberately literal: this is what a
+#: browser would fetch, taken from the markup the server actually returned.
+_ASSET = re.compile(
+    r'<(?:link[^>]+href|script[^>]+src|img[^>]+src)="(/[^"]+)"', re.IGNORECASE)
 
-class Step(NamedTuple):
-    client_ip: str
-    method: str
-    path: str
-    category: str
-    instance_id: str
+_ASSET_SUFFIXES = (".css", ".js", ".jpg", ".jpeg", ".png", ".gif", ".webp",
+                   ".svg", ".ico", ".woff", ".woff2")
 
-
-#: (client address, [(method, path, category)]). Each client appears once and
-#: its requests run to completion before the next client starts.
-_SESSIONS = (
-    ("203.0.113.50", (
-        ("GET", "/", "browsing"),
-        ("GET", "/assets/css/site.css", "static_asset"),
-        ("GET", "/favicon.ico", "static_asset"),
-        ("GET", "/no-such-page", "browsing"),
-        ("GET", "/", "browsing"),
-    )),
-    # A CGNAT address, so the first end-to-end run exercises the range the
-    # mobile personas will use rather than only the easy one.
-    ("100.64.3.7", (
-        ("GET", "/", "browsing"),
-        ("GET", "/assets/css/site.css", "static_asset"),
-        ("HEAD", "/", "browsing"),
-    )),
-    ("198.51.100.20", (
-        ("GET", "/robots.txt", "crawling"),
-        ("GET", "/", "crawling"),
-    )),
-)
+#: How often a cached asset is revalidated rather than used silently. Real
+#: browsers revalidate on a mixture of cache headers, reloads and expiry; this
+#: is the single knob that stands in for all of it, and it is what puts 304s in
+#: the dataset at all.
+_REVALIDATE_CHANCE = 0.18
 
 
-def plan_requests():
-    """Yield the Steps this driver will issue, in order.
+class Ledger:
+    """One record per issued request, flushed as it goes."""
 
-    Pure, so the plan can be checked against the validator's rules without a
-    server: a plan that cannot produce a valid truth file should fail a test,
-    not a build.
-    """
-    for client_ip, steps in _SESSIONS:
-        episode = 0
-        current = None
-        for method, path, category in steps:
-            if category != current:
-                episode += 1
-                current = category
-            yield Step(client_ip=client_ip, method=method, path=path,
-                       category=category,
-                       instance_id=f"{client_ip}#{episode}")
+    def __init__(self, fh):
+        self._fh = fh
+        self._lock = asyncio.Lock()
+
+    async def record(self, **fields):
+        async with self._lock:
+            self._fh.write(json.dumps(fields, separators=(",", ":")) + "\n")
+            self._fh.flush()
 
 
-def run(ledger_path, base_url=UPSTREAM):
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    issued = 0
-    # Truncated, not appended: one process is one run, exactly as the server's
-    # entrypoint truncates the log files. A ledger carrying the previous run's
-    # entries would join cleanly against nothing and hide nothing, but it would
-    # grow without bound and mislead anyone reading it.
-    with open(ledger_path, "w", encoding="utf-8") as fh:
-        for step in plan_requests():
-            request_id = new_request_id()
-            request = urllib.request.Request(
-                base_url + step.path, method=step.method)
-            request.add_header("X-Forwarded-For", step.client_ip)
-            request.add_header("X-Request-Id", request_id)
-            request.add_header("User-Agent", "logforge-driver/0 (phase-b)")
+class Episodes:
+    """Per-client episode ids, incremented when the activity changes."""
 
-            try:
-                urllib.request.urlopen(request, timeout=10).read()
-            except urllib.error.HTTPError:
-                # A 404 is a perfectly good log line and a deliberate part of
-                # the plan. Only a failure to reach the server at all matters.
-                pass
+    def __init__(self):
+        self._seq = defaultdict(int)
+        self._current = {}
 
-            # Written after the request, so the ledger never claims a label for
-            # a request that was never made.
-            fh.write(json.dumps({
-                "request_id": request_id,
-                "client_ip": step.client_ip,
-                "actor": ACTOR,
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "method": step.method,
-                "path": step.path,
-                "category": step.category,
-                "instance_id": step.instance_id,
-            }, separators=(",", ":")) + "\n")
-            fh.flush()
-            issued += 1
-    return issued
+    def id_for(self, client_ip, activity):
+        if self._current.get(client_ip) != activity:
+            self._seq[client_ip] += 1
+            self._current[client_ip] = activity
+        return f"{client_ip}#{self._seq[client_ip]}"
+
+
+class Driver:
+
+    def __init__(self, catalogue, ledger, seed, concurrency):
+        self.catalogue = catalogue
+        self.ledger = ledger
+        self.clients = ClientPool(seed)
+        self.agents = UserAgentPool(seed)
+        self.episodes = Episodes()
+        self.rng = random.Random(seed ^ 0xA5A5)
+        self.gate = asyncio.Semaphore(concurrency)
+        # One lock per client address: a visitor cannot be in two places at
+        # once, and their episode ids would interleave in the log if they were.
+        self.per_client = defaultdict(asyncio.Lock)
+        self.issued = 0
+
+    async def fetch(self, client, step_path, method, client_ip, agent,
+                    category, activity, referer, extra_headers=None):
+        request_id = new_request_id()
+        headers = {
+            "X-Forwarded-For": client_ip,
+            "X-Request-Id": request_id,
+            "User-Agent": agent,
+        }
+        if referer:
+            headers["Referer"] = referer
+        if extra_headers:
+            headers.update(extra_headers)
+
+        body = None
+        if method == "POST" and step_path == "/api/cart":
+            headers["Content-Type"] = "application/json"
+            body = json.dumps({"id": self._any_product(), "quantity": 1})
+        elif method == "POST" and step_path == "/login":
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            user = self.rng.choice(self.catalogue["users"])
+            body = f"username={user['username']}&password={user['password']}"
+
+        try:
+            response = await client.request(
+                method, BASE + step_path, headers=headers, content=body)
+        except httpx.HTTPError:  # type: ignore[union-attr]
+            # The request was still made and Apache may still have logged it.
+            # The ledger records it either way; the join is what decides.
+            response = None
+
+        await self.ledger.record(
+            request_id=request_id, client_ip=client_ip, actor=ACTOR,
+            ts=datetime.now(timezone.utc).isoformat(),
+            method=method, path=step_path, category=category,
+            instance_id=self.episodes.id_for(client_ip, activity))
+        self.issued += 1
+        return response
+
+    def _any_product(self):
+        category = self.rng.choice(self.catalogue["categories"])
+        return self.rng.choice(category["products"])
+
+    async def assets_for(self, client, html, page_path, client_ip, agent,
+                         activity, cache):
+        """Request the subresources the page references, the way a browser would.
+
+        A browser holds what it already fetched. Refetching the stylesheet on
+        every page view is what pushed static assets to 91% of a measured run
+        -- far above any real log -- so an asset already seen in this visit is
+        either served from cache and never requested at all, or revalidated
+        with a conditional GET that comes back 304. Both are what actually
+        happens, and the 304s are a response class the dataset otherwise had
+        none of.
+        """
+        wanted = [path for path in _ASSET.findall(html)
+                  if path.lower().split("?")[0].endswith(_ASSET_SUFFIXES)]
+
+        for path in wanted[:40]:
+            if path in cache:
+                if self.rng.random() >= _REVALIDATE_CHANCE:
+                    continue          # straight from cache; no request is made
+                response = await self.fetch(
+                    client, path, "GET", client_ip, agent, "static_asset",
+                    activity, SITE + page_path,
+                    extra_headers={"If-Modified-Since": cache[path]})
+            else:
+                response = await self.fetch(
+                    client, path, "GET", client_ip, agent, "static_asset",
+                    activity, SITE + page_path)
+
+            if response is not None:
+                last_modified = response.headers.get("last-modified")
+                if last_modified:
+                    cache[path] = last_modified
+
+    async def run_session(self, client, session):
+        ua_persona, role = PERSONA_IDENTITY[session.persona]
+        client_ip = self.clients.draw(role)
+        agent = self.agents.for_client(client_ip, ua_persona)
+
+        async with self.per_client[client_ip]:
+            steps = journey(session.persona, self.rng, self.catalogue)
+            previous = None
+            # One browser cache per visit, holding the Last-Modified of every
+            # asset already fetched. Reset between visits, which is why a
+            # returning client pays for the cascade again.
+            cache = {}
+
+            for step in steps:
+                path = step.path
+                if "{order}" in path:
+                    user = self.rng.choice(self.catalogue["users"])
+                    if not user["orders"]:
+                        continue
+                    path = path.replace("{order}",
+                                        str(self.rng.choice(user["orders"])))
+
+                if session.persona in NO_REFERER:
+                    referer = None
+                else:
+                    referer = (step.referer if previous is None
+                               else SITE + previous)
+                async with self.gate:
+                    response = await self.fetch(
+                        client, path, step.method, client_ip, agent,
+                        step.category, step.activity, referer)
+
+                if step.method == "GET":
+                    previous = path
+
+                # Only HTML pages have a cascade, and only clients that render
+                # them pull it. A scanner and an uptime monitor fetch the
+                # document and nothing else; the per-visit cache then decides
+                # how much of the cascade a real browser actually requests.
+                if (response is not None
+                        and session.persona not in NO_REFERER
+                        and response.status_code == 200
+                        and "text/html" in response.headers.get("content-type", "")):
+                    async with self.gate:
+                        await self.assets_for(client, response.text, path,
+                                              client_ip, agent, step.activity,
+                                              cache)
+
+
+async def main_async(args):
+    catalogue = json.loads(Path(args.catalogue).read_text())
+    sessions = plan_sessions(
+        datetime.now(timezone.utc), args.duration, args.rate,
+        json.loads(args.personas), args.seed)
+
+    args.ledger.parent.mkdir(parents=True, exist_ok=True)
+    with open(args.ledger, "w", encoding="utf-8") as fh:
+        ledger = Ledger(fh)
+        driver = Driver(catalogue, ledger, args.seed, args.concurrency)
+
+        limits = httpx.Limits(max_connections=args.concurrency * 2,
+                              max_keepalive_connections=args.concurrency)
+        async with httpx.AsyncClient(timeout=15.0, limits=limits,
+                                     follow_redirects=False) as client:
+            await asyncio.gather(*(driver.run_session(client, s)
+                                   for s in sessions))
+
+    print(f"issued {driver.issued} requests across {len(sessions)} sessions")
+    return driver.issued
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Phase B placeholder driver")
+    parser = argparse.ArgumentParser(description="persona-driven traffic")
     parser.add_argument("--ledger", required=True, type=Path)
-    parser.add_argument("--base-url", default=UPSTREAM)
+    parser.add_argument("--catalogue", required=True, type=Path)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--duration", type=float, default=600.0,
+                        help="virtual seconds of arrivals to plan")
+    parser.add_argument("--rate", type=float, default=0.05,
+                        help="session arrivals per virtual second")
+    parser.add_argument("--concurrency", type=int, default=48)
+    parser.add_argument("--personas", default=json.dumps(
+        {"casual": 0.35, "shopper": 0.30, "mobile": 0.15,
+         "returning": 0.10, "crawler": 0.07, "monitor": 0.03}))
     args = parser.parse_args(argv)
-    print(f"issued {run(args.ledger, args.base_url)} requests")
+    asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":

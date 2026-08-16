@@ -78,14 +78,34 @@ services:
   # client address itself, which is why 203.0.113.4 is in RemoteIPTrustedProxy,
   # and mints its own request ids, so it needs no tag proxy.
   driver:
-    image: python:3.12-slim
+    build: ./traffic
+    image: logforge/apache-shopfront-driver:dev
     command:
       - python
       - /opt/logforge/projects/apache-shopfront/traffic/driver.py
       - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/driver.jsonl
+      - --catalogue=/opt/logforge/projects/apache-shopfront/app/data/catalogue.json
     volumes:
       - ../..:/opt/logforge:ro
       - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
     networks:
       lab_res:
         ipv4_address: 203.0.113.4
+
+  # One-shot. Its address is reserved for nothing else, which is the whole
+  # point: the malformed shapes it sends never reach mod_remoteip, so Apache
+  # logs them against this address and the join can label them by it exactly.
+  # It is deliberately NOT in RemoteIPTrustedProxy -- it has no address to
+  # declare and no business declaring one.
+  noise:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/traffic/noise.py
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/noise.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_res:
+        ipv4_address: 203.0.113.6

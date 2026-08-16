@@ -17,6 +17,9 @@ datasets/**/SHA256SUMS
 projects/*/server/logs/
 projects/*/traffic/ledger/
 projects/*/app/data/*.sqlite
+# Written by the seeder so the traffic driver knows the shape of the catalogue
+# without having to ask the running server for it.
+projects/*/app/data/catalogue.json
 projects/*/app/uploads/*
 !projects/*/app/uploads/.gitkeep
 

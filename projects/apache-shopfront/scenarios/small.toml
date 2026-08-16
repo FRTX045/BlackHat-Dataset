@@ -1,12 +1,23 @@
-# The fast-iteration tier. Timestamps are untouched: the log spans however long
-# the run actually took.
-#
-# Phase B values are placeholders sized for proving the machinery, not for
-# producing a dataset. Task 15 sets the real ones once the persona driver
-# exists and its achieved throughput has been measured.
+# The fast-iteration tier: a day of shop traffic, built in a few minutes.
 
 kind = "weblog-truth"
 seed = 7
+
+[timeline]
+# The driver issues its whole plan as fast as the sockets allow, so the
+# captured log covers about three minutes at three hundred requests a second.
+# The sequence is right and the timing is not, and nothing time-based can be
+# studied on it. This puts the same lines, in the same per-session order, on a
+# clock the traffic model actually describes.
+#
+# It is a rewrite and it ships as one: `access.raw.log` is the capture,
+# timestamps and all, and the manifest says which is which.
+remap = true
+# A Monday, so a week-long medium run starts where this one does and the two
+# tiers can be read against each other. Fixed rather than taken from the build
+# date: the same seed should produce the same clock next year.
+start = "2026-03-09T00:00:00+00:00"
+duration_seconds = 86400
 
 # What the finished small tier aims for. The Phase B driver issues ten fixed
 # requests and ignores these; they are here so the scenario contract is in
@@ -16,9 +27,9 @@ attack_share_target = 0.05
 
 [traffic]
 # Virtual seconds of arrivals to plan, and session arrivals per virtual second.
-# The driver issues them as fast as it can; the virtual span is what the
-# medium-tier timestamp remap will later stretch. At this rate a small run is
-# a few thousand lines and takes well under a minute.
+# These size the run; they are not the clock the finished log carries, which
+# is [timeline] above. At this rate a small run is about sixty thousand lines
+# and takes a few minutes.
 duration_seconds = 7200
 session_rate = 0.22
 concurrency = 32
@@ -51,3 +62,17 @@ campaigns = [
 # Divide every operator pause by this. 1.0 would take the hour the playbook
 # timings describe; the small tier is for iteration.
 pace = 25.0
+
+# Real security tools, each in its own container behind the tag proxy so its
+# requests acquire a request id and join as exactly as a driver request does.
+# Named individually rather than "all": adding a tool to toolruns.py should be
+# a decision about a scenario, not a silent change to every dataset built
+# afterwards.
+#
+# `hydra-login` is declared in toolruns.py and deliberately absent here: its
+# http-post-form module blocks against a login that answers 401 without a
+# WWW-Authenticate header, producing about one request per run. The reason is
+# recorded beside the declaration. Credential attacks against that endpoint
+# come from the hand-written playbooks instead.
+tools = ["whatweb-root", "dirb-common", "gobuster-common", "nmap-http",
+         "sqlmap-search"]

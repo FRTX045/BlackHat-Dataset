@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from shared.verify.stats import (attack_overlap, attack_share,
                                  client_concentration, episode_shape,
                                  inter_arrival, referer_share,
-                                 response_shapes, summarise,
+                                 response_shapes, summarise, timespan,
                                  user_agent_spread)
 
 T0 = datetime(2026, 8, 16, 9, 0, tzinfo=timezone.utc)
@@ -104,6 +104,40 @@ class TestInterArrival(unittest.TestCase):
         self.assertGreater(inter_arrival(records)["zero_gap_share"], 0)
 
 
+class TestTimespan(unittest.TestCase):
+    """How long the log covers and how fast it ran.
+
+    This is the statistic that made the timing defect visible. Zero-gap share
+    could not: it is high on any busy real log, because a page load is a dozen
+    requests inside one second. Sixty thousand requests in two hundred seconds
+    is what a log has no innocent explanation for.
+    """
+
+    def test_it_reports_the_span_and_the_achieved_rate(self):
+        records = [rec(offset=n) for n in range(0, 400, 4)]
+        measured = timespan(records)
+        self.assertEqual(measured["span_seconds"], 396.0)
+        self.assertEqual(measured["requests_per_second"], 0.2525)
+
+    def test_a_log_crammed_into_no_time_at_all_is_visible(self):
+        crammed = timespan([rec(offset=0) for _ in range(5000)])
+        self.assertEqual(crammed["span_seconds"], 0.0)
+        self.assertIsNone(crammed["requests_per_second"])
+
+    def test_the_busiest_second_is_reported(self):
+        records = [rec(offset=0) for _ in range(9)] + [rec(offset=30)]
+        self.assertEqual(timespan(records)["busiest_second_requests"], 9)
+
+    def test_it_reports_how_many_distinct_days_the_log_covers(self):
+        # A log that never crosses midnight cannot show a diurnal cycle, and a
+        # log inside one weekday cannot show a weekly one.
+        records = [rec(offset=n * 3600) for n in range(0, 200, 5)]
+        self.assertGreaterEqual(timespan(records)["distinct_days"], 8)
+
+    def test_an_empty_log_reports_rather_than_raises(self):
+        self.assertEqual(timespan([])["span_seconds"], 0.0)
+
+
 class TestAttackMeasures(unittest.TestCase):
 
     def test_attack_share_counts_only_hostile_categories(self):
@@ -122,6 +156,31 @@ class TestAttackMeasures(unittest.TestCase):
         result = attack_overlap(records, truths)
         self.assertEqual(result["attack_lines"], 2)
         self.assertEqual(result["overlapping_share"], 0.5)
+
+    def test_overlap_is_also_measured_over_a_window_not_just_one_second(self):
+        # The exact-second share falls with the request rate for reasons that
+        # have nothing to do with how well the attack is hidden: a log at one
+        # request a second has almost no second containing two of anything.
+        # The question an analyst actually asks is whether ordinary traffic
+        # was going on *around* the attack, which needs a window.
+        records = [rec(offset=0), rec(offset=20), rec(offset=40)]
+        truths = [truth(), truth(category="injection"), truth()]
+        measured = attack_overlap(records, truths)
+        self.assertEqual(measured["overlapping_share"], 0.0)
+        self.assertEqual(measured["overlapping_share_within_60s"], 1.0)
+
+    def test_an_attack_alone_in_a_quiet_hour_shows_as_separable(self):
+        records = [rec(offset=0), rec(offset=3600), rec(offset=7200)]
+        truths = [truth(), truth(category="injection"), truth()]
+        measured = attack_overlap(records, truths)
+        self.assertEqual(measured["overlapping_share_within_60s"], 0.0)
+
+    def test_the_window_it_used_is_reported_alongside_the_number(self):
+        # A share with no window attached is not interpretable, and a later
+        # change to the window would silently change what the figure means.
+        records = [rec(offset=0), rec(offset=1)]
+        truths = [truth(), truth(category="injection")]
+        self.assertEqual(attack_overlap(records, truths)["window_seconds"], 60)
 
     def test_a_dataset_with_no_attacks_reports_zero_rather_than_failing(self):
         result = attack_overlap([rec()], [truth("browsing")])

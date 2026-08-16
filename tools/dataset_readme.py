@@ -30,17 +30,80 @@ def render(*, project, tier, manifest, stats, tool_runs, campaigns):
     clients = stats["client_concentration"]
     agents = stats["user_agents"]
     overlap = stats["attack_overlap"]
+    clock = manifest.get("timestamps", {"remapped": False})
+    span = stats["timespan"]
+
+    if clock.get("remapped"):
+        clock_text = f"""**The timestamps in `access.log` were rewritten, and `access.raw.log` is
+the log Apache actually wrote.** The driver issues its whole plan as fast as
+the sockets allow, so the capture covers
+{clock['captured_span_seconds']:,.0f} seconds — the request *sequence* is
+meaningful and the timing is not.
+
+The rewrite moves each session's start onto the same diurnal and weekly curves
+the driver plans against, and reconstructs the spacing inside a session from
+what each request was: a subresource follows its page in milliseconds, a
+person reads for a few seconds before clicking, an operator waits longer
+because they are reading what came back. Every other byte of every line, and
+the order of requests within a session, is as captured.
+
+That last part is inference, not measurement. The capture's sub-second
+structure is gone, so the labels are the only signal left to rebuild pacing
+from. If you need the unrewritten article, it is `access.raw.log` with
+`truth.raw.jsonl` beside it.
+
+| | |
+|---|---|
+| Window | {clock['start']} → {clock['end']} |
+| Span | {clock['span_seconds'] / 86400:.2f} days |
+| Days covered | {span['distinct_days']} |
+| Achieved rate | {span['requests_per_second']} requests/second |
+| Busiest second | {span['busiest_second_requests']} requests |
+| Sessions | {clock['sessions']:,} ({clock['sessions_pushed']:,} pushed later to keep one session per address at a time) |"""
+    else:
+        clock_text = f"""Timestamps are exactly as Apache wrote them, and that is a limitation rather
+than a feature: the driver issues its whole plan as fast as the sockets allow,
+so this log covers {span['span_seconds']:,.0f} seconds at
+{span['requests_per_second']} requests a second. The request *sequence* is
+meaningful; the timing is not. Nothing rate-based, burst-based or
+session-duration-based can be studied on this file."""
 
     if tool_runs:
         tool_table = "\n".join(
-            ["| Tool | Version | Source IP | Invocations | What it was pointed at |",
-             "|---|---|---|---|---|"]
-            + [f"| {r['tool']} | {r.get('version') or 'unrecorded'} | "
-               f"{r['source_ip']} | 1 | {r['target']} |" for r in tool_runs])
+            ["| Tool | Version | Source IP | Requests | Exit | What it was pointed at |",
+             "|---|---|---|---|---|---|"]
+            + [f"| {r['tool']} | `{r.get('version') or 'unrecorded'}` | "
+               f"{r['source_ip']} | {r['requests']:,} | "
+               f"{r['exit_code']}{' (cut off)' if r.get('timed_out') else ''} | "
+               f"{r['target']} |" for r in tool_runs])
+        tool_table += (
+            "\n\nThe **Requests** column is the count the tag proxy actually "
+            "recorded from each tool's address, not a count of tools that "
+            "were started. A tool that ran, exited cleanly and reached "
+            "nothing would otherwise be indistinguishable here from one that "
+            "worked; the build refuses to finish if any of them is zero.")
     else:
         tool_table = ("None — no tool-driven attacks ran in this build. The "
                       "attack traffic here is entirely hand-written, from "
                       "`attacks/playbooks.py`.")
+
+    findings = manifest.get("audit", {}).get("findings", [])
+    fired = [f for f in findings if f["suspicious"]]
+    if findings:
+        audit_text = "\n".join(
+            [f"`tools/audit.py` runs {len(findings)} tells for whether a log "
+             f"looks generated. On this dataset "
+             f"**{len(fired)} of them "
+             f"{'fires' if len(fired) == 1 else 'fire'}**.", ""]
+            + ([f"- **`{f['name']}`** — measured `{f['measured']}` against a "
+                f"threshold of `{f['threshold']}`. {f['explanation']}"
+                for f in fired]
+               if fired else
+               ["None fired, which is a statement about these eight checks "
+                "and not a claim that the log is indistinguishable from a "
+                "real one."]))
+    else:
+        audit_text = "The audit was not run for this dataset."
 
     succeeded = [c for c in campaigns if c.get("succeeds")]
     failed = [c for c in campaigns if not c.get("succeeds")]
@@ -100,6 +163,10 @@ Measured for this run:
 No headless-browser traffic: Playwright was not built. The cascades are real
 requests for real subresources, ordered by the driver rather than by Chromium.
 
+#### When it says it happened
+
+{clock_text}
+
 ### Which tools produced the attack traffic
 
 {tool_table}
@@ -112,18 +179,31 @@ ordinary browsing interleaved:
 
 {len(succeeded)} of {len(campaigns)} campaigns found something;
 {len(failed)} did not. Attack traffic is
-**{_percent(stats['attack_share'])}** of all lines, and
-{_percent(overlap['overlapping_share'])} of it shares its second with ordinary
-traffic — an attack alone in a quiet window would be separable on timestamp
-without reading a single request.
+**{_percent(stats['attack_share'])}** of all lines.
+
+An attack alone in a quiet window is separable on timestamp without reading a
+single request, so the campaigns and tool runs are issued *concurrently* with
+the ordinary traffic. Two figures, because one is not enough:
+
+| | |
+|---|---|
+| Attack lines sharing their exact second with ordinary traffic | {_percent(overlap['overlapping_share'])} |
+| Attack lines with ordinary traffic within ±30s | **{_percent(overlap.get('overlapping_share_within_60s', 0))}** |
+
+The first falls with the request rate for reasons that have nothing to do with
+how well the attack is hidden — a log at one request a second has almost no
+second holding two of anything. The second is the one that answers whether a
+timestamp filter would separate the attack out, and it does not move with the
+rate.
 
 ### How the labels were produced
 
-Every request carries a unique `X-Request-Id`; the shipped `access.log` is the
-tagged log with that prefix removed, so line N of the log and line N of
-`truth.jsonl` are the same request by construction.
+Every request carries a unique `X-Request-Id`; the derived log is the tagged
+log with that prefix removed, so line N of the log and line N of its truth
+file are the same request by construction.
 
-- Derived vs the log Apache wrote independently: **{agreement['summary']}**
+- Derived vs the log Apache wrote independently, on
+  `{agreement.get('compared_file', 'access.log')}`: **{agreement['summary']}**
 - Unmatched request ids: **{manifest['unmatched_request_ids']}**
 - Of those, labelled by reserved source address:
   **{manifest['address_fallback_lines']}**
@@ -150,6 +230,20 @@ and does not claim to be.
 {_table({k: _percent(v) for k, v in stats['status_distribution'].items()},
         'Status', 'Share')}
 
+## Does it look generated?
+
+{audit_text}
+
+The detector lives in this repository and is pointed at our own datasets
+first. Findings above are the ones it makes about *this* file — published
+here rather than left for a reader to discover, which is the only reason
+owning the detector is worth anything.
+
+```bash
+python3 tools/audit.py <this directory> -v
+python3 tools/audit.py <this directory> --compare access.raw.log
+```
+
 ## Known limitations
 
 Written as they are, not as one would like them.
@@ -165,6 +259,13 @@ Written as they are, not as one would like them.
   status, same size, same URL shape. Only the sequence reveals it.
 - **Client addresses are documentation and CGNAT ranges.** Geographic and ASN
   analysis is meaningless on this data.
+- {"**The clock is reconstructed, not captured.** Session starts follow the "
+   "arrival model rather than anything that was observed, and within-session "
+   "spacing is inferred from each request's label. Use `access.raw.log` if "
+   "you need what the server recorded."
+   if clock.get("remapped") else
+   "**Timestamps are the wall clock of a run that took "
+   f"{span['span_seconds']:,.0f} seconds.** Nothing time-based is usable."}
 - **Single-request clients are
   {_percent(clients['single_request_share'])} of clients**, far below what the
   address pool draws. In a log carrying asset cascades a one-page visitor still

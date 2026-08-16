@@ -41,6 +41,8 @@ from shared.verify.agreement import compare_logs  # noqa: E402
 from shared.verify.combined import parse_line  # noqa: E402
 from shared.verify.provenance import check_provenance  # noqa: E402
 from shared.verify.stats import summarise  # noqa: E402
+from shared.verify.tells import audit  # noqa: E402
+from shared.verify.tells import summary as audit_summary  # noqa: E402
 
 REQUIRED_FILES = ("access.log", "truth.jsonl", "MANIFEST.json", "README.md")
 
@@ -66,6 +68,20 @@ def load(dataset):
     except TruthFormatError as exc:
         raise Failure(str(exc)) from None
     manifest = json.loads((dataset / "MANIFEST.json").read_text())
+
+    # A dataset whose manifest says the clock was rewritten but which does not
+    # ship the capture is a dataset with no way back to what Apache wrote.
+    # That is not a realism defect to print; it is a missing file.
+    clock = manifest.get("timestamps", {})
+    if clock.get("remapped"):
+        absent = [name for name in (clock.get("capture_file"),
+                                    clock.get("capture_truth_file"))
+                  if name and not (dataset / name).exists()]
+        if absent:
+            raise Failure(
+                f"{dataset} says its timestamps were rewritten but is missing "
+                f"the capture it was rewritten from: {', '.join(absent)}")
+
     return lines, header, list(records), manifest
 
 
@@ -129,9 +145,26 @@ def report(dataset, records, truth_records, manifest):
     print(f"  seed                           {manifest.get('seed')}")
     print(f"  commit                         {manifest.get('commit')}")
 
-    agreement = compare_logs(dataset / "access.log",
-                             dataset / "access.apache.log")
-    print(f"\nderived vs the log Apache wrote independently")
+    clock = manifest.get("timestamps", {})
+    print(f"\nclock")
+    if clock.get("remapped"):
+        print(f"  timestamps                     rewritten "
+              f"(capture kept as {clock['capture_file']})")
+        print(f"  window                         {clock.get('start')} .. "
+              f"{clock.get('end')}")
+        print(f"  sessions pushed to avoid overlap "
+              f"{clock.get('sessions_pushed')} of {clock.get('sessions')}")
+    else:
+        print("  timestamps                     as captured")
+
+    # Against the capture, never the shipped log, when the clock was rewritten.
+    # Comparing a deliberately rewritten log with Apache's own would diverge on
+    # every line and say nothing about the labelling mechanism, which is the
+    # only thing this check is about.
+    capture = dataset / clock.get("capture_file", "access.log")
+    agreement = compare_logs(capture, dataset / "access.apache.log")
+    print(f"\nderived vs the log Apache wrote independently "
+          f"({capture.name})")
     print(f"  {agreement.summary()}")
 
     print(f"\nlabelling")
@@ -152,6 +185,16 @@ def report(dataset, records, truth_records, manifest):
     _print_block("client concentration", stats["client_concentration"])
     _print_block("user agents", stats["user_agents"])
     _print_block("referer", stats["referer_share"])
+    findings = audit(records)
+    counts = audit_summary(findings)
+    print(f"\nfake-log audit ({counts['tells_fired']} of "
+          f"{counts['tells_checked']} tells fired)")
+    for finding in findings:
+        mark = "?" if finding.inconclusive else ("HIT" if finding.suspicious
+                                                 else ".")
+        print(f"  {mark:>3}  {finding.name:<32} {finding.measured!r}")
+
+    _print_block("timespan", stats["timespan"])
     _print_block("inter-arrival", stats["inter_arrival"])
     _print_block("episodes", stats["episodes"])
     return stats

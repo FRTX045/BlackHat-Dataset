@@ -1,0 +1,61 @@
+# A week of shop traffic. Roughly four times the small tier's volume, spread
+# over seven days instead of one, which is what makes the weekly rhythm
+# visible at all -- a single-day log can show a diurnal cycle and cannot show
+# a weekend.
+#
+# Sized from the small tier's measured throughput rather than guessed: that
+# run produced about 42 lines per session at roughly 330 lines/second of wall
+# clock, so the numbers below are about 6,000 sessions, a quarter of a million
+# lines, and somewhere near fifteen minutes of building.
+
+kind = "weblog-truth"
+seed = 19
+
+[timeline]
+remap = true
+# The same Monday the small tier starts on, so the two tiers line up and a
+# consumer comparing them is comparing the same week.
+start = "2026-03-09T00:00:00+00:00"
+# Seven days. At this line count that is about 0.4 requests a second, which is
+# what a small shop actually does; a busier rate would need a longer run, not
+# a shorter window.
+duration_seconds = 604800
+
+target_lines = 250000
+attack_share_target = 0.05
+
+[traffic]
+duration_seconds = 14400
+session_rate = 0.42
+# Higher than small: the run is longer, and the point of the medium tier is
+# volume. Above about 48 the driver starts losing connections rather than
+# going faster, which shows up as 500s the application never generated.
+concurrency = 40
+
+noise_requests = 400
+
+[personas]
+# Same mix as the small tier. The tiers differ in volume and in span, not in
+# what the traffic is -- a medium run that changed the persona weights could
+# not be used to check whether a detector trained on small generalises.
+shopper = 0.26
+casual = 0.29
+returning = 0.09
+mobile = 0.13
+crawler = 0.07
+monitor = 0.03
+scanner = 0.13
+
+[attacks]
+campaigns = [
+    "patient_operator", "webshell_operator", "blind_injector",
+    "metadata_hunter", "credential_hunter", "fruitless_prober",
+]
+# Slower than the small tier's 25.0. The run is longer, so the operators can
+# afford to be closer to the pace their playbooks describe, and the phases
+# spread further across the ordinary traffic they hide in.
+pace = 8.0
+
+# hydra-login is declared but not run; see small.toml for why.
+tools = ["whatweb-root", "dirb-common", "gobuster-common", "nmap-http",
+         "sqlmap-search"]

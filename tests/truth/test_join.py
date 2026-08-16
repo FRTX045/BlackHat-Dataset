@@ -229,6 +229,49 @@ class TestDerivedLabels(JoinCase):
         self.assertEqual(validate_records(self.truth_records, ips), [])
 
 
+class TestAddressFallback(JoinCase):
+    """Lines Apache rejected before mod_remoteip ran carry no request id.
+
+    Measured: a garbage request line, a space in the path, and an HTTP/0.9
+    request with no version reach the log with the connection's real address
+    and no X-Request-Id. They are real lines and they must ship labelled, so
+    the shapes that do it are issued from an address reserved for nothing
+    else and the join labels by that address.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.write_tagged([
+            TAGGED[0],
+            '- 203.0.113.6 - - [16/Aug/2026:09:00:05 +0000] "GARBAGE" 400 352 "-" "-"',
+        ])
+        self.write_ledger(LEDGER[:1])
+
+    def test_an_unmatched_line_from_a_reserved_address_is_labelled(self):
+        report = self.run_join(address_fallback={"203.0.113.6": "reconnaissance"})
+        self.assertEqual([r["category"] for r in self.truth_records],
+                         ["browsing", "reconnaissance"])
+
+    def test_fallback_lines_are_counted_separately_from_unknowns(self):
+        report = self.run_join(address_fallback={"203.0.113.6": "reconnaissance"})
+        self.assertEqual(report.address_fallback_lines, 1)
+        self.assertEqual(report.unmatched_ids, 1)
+
+    def test_without_a_fallback_the_same_line_is_unknown(self):
+        report = self.run_join()
+        self.assertEqual(self.truth_records[1]["category"], "unknown")
+        self.assertEqual(report.address_fallback_lines, 0)
+
+    def test_a_fallback_category_outside_the_vocabulary_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.run_join(address_fallback={"203.0.113.6": "portscan"})
+
+    def test_fallback_output_still_satisfies_the_validator(self):
+        self.run_join(address_fallback={"203.0.113.6": "reconnaissance"})
+        ips = [line.split(" ")[0] for line in self.access_lines]
+        self.assertEqual(validate_records(self.truth_records, ips), [])
+
+
 class TestMultipleLedgers(JoinCase):
 
     def test_records_are_found_across_every_ledger_given(self):

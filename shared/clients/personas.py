@@ -24,7 +24,23 @@ Stdlib only, by project rule.
 
 from typing import NamedTuple
 
-PERSONAS = ("casual", "shopper", "returning", "mobile", "crawler", "monitor")
+PERSONAS = ("casual", "shopper", "returning", "mobile", "crawler", "monitor",
+            "scanner")
+
+#: What opportunistic scanning asks for. These are the paths real internet
+#: background noise hits constantly and this shop has none of them, so they all
+#: 404 -- which is the point. Split by intent: a handful of known-file probes,
+#: then a systematic sweep.
+_PROBE_PATHS = (
+    "/.env", "/.git/config", "/.aws/credentials", "/config.json",
+    "/server-status", "/actuator/health", "/.well-known/security.txt",
+)
+_SWEEP_PATHS = (
+    "/wp-login.php", "/wp-admin/", "/xmlrpc.php", "/phpmyadmin/",
+    "/admin.php", "/administrator/", "/shell.php", "/backup.zip",
+    "/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php",
+    "/cgi-bin/test.cgi", "/.svn/entries", "/db.sql", "/old/", "/test.php",
+)
 
 #: How a journey persona maps onto the user-agent corpus and the address pool.
 #:
@@ -40,6 +56,7 @@ PERSONA_IDENTITY = {
     "mobile": ("mobile_user", "mobile"),
     "crawler": ("crawler", "cloud"),
     "monitor": ("uptime_monitor", "cloud"),
+    "scanner": ("scanner", "datacenter"),
 }
 
 #: Where an arriving visitor says they came from. Search engines dominate real
@@ -86,8 +103,28 @@ def _browse(rng, catalogue, pages, referer=None):
     return steps, category
 
 
+#: Personas that never send a Referer, on any request.
+#:
+#: Search-engine crawlers, uptime monitors and opportunistic scanners do not
+#: set the header at all -- they are not navigating, they are fetching a list.
+#: Letting the driver synthesise one for them from the previous page produced a
+#: measured 99% Referer share across the whole log, which no real access log
+#: has.
+NO_REFERER = frozenset({"crawler", "monitor", "scanner"})
+
+#: Share of visits that arrive with no Referer at all -- typed in, bookmarked,
+#: opened from an app, or sent with the header stripped. A log where every
+#: arrival carries a search-engine Referer is as wrong as one where none does;
+#: a measured run without this sat at 100%.
+_DIRECT_ARRIVAL = 0.38
+
+
+def _arrival_referer(rng):
+    return None if rng.random() < _DIRECT_ARRIVAL else rng.choice(SEARCH_REFERERS)
+
+
 def _casual(rng, catalogue):
-    referer = rng.choice(SEARCH_REFERERS)
+    referer = _arrival_referer(rng)
     steps, _ = _browse(rng, catalogue, rng.randint(1, 4), referer)
     if rng.random() < 0.3:
         steps.append(Step("GET", "/about", "browsing", "browse"))
@@ -95,7 +132,7 @@ def _casual(rng, catalogue):
 
 
 def _shopper(rng, catalogue):
-    referer = rng.choice(SEARCH_REFERERS) if rng.random() < 0.6 else None
+    referer = _arrival_referer(rng)
     steps, category = _browse(rng, catalogue, rng.randint(2, 6), referer)
 
     if rng.random() < 0.6:
@@ -134,7 +171,7 @@ def _returning(rng, catalogue):
 
 def _mobile(rng, catalogue):
     # Same journeys, fewer pages: mobile visitors abandon sooner.
-    referer = rng.choice(SEARCH_REFERERS)
+    referer = _arrival_referer(rng)
     steps, category = _browse(rng, catalogue, rng.randint(0, 2), referer)
     if rng.random() < 0.25:
         steps.append(Step("POST", "/api/cart", "api_call", "basket"))
@@ -166,6 +203,21 @@ def _monitor(rng, catalogue):
             for _ in range(rng.randint(1, 2))]
 
 
+def _scanner(rng, catalogue):
+    """Opportunistic background scanning: known files, then a sweep.
+
+    Two activities, in that order and never back again, so the episodes it
+    produces are contiguous. Nothing here exists on this shop, so every line
+    is a 404 -- which is what makes this traffic legible in the log and what
+    makes it a useful negative class to practise on.
+    """
+    steps = [Step("GET", path, "reconnaissance", "probe")
+             for path in rng.sample(_PROBE_PATHS, rng.randint(2, 5))]
+    steps += [Step("GET", path, "enumeration", "sweep")
+              for path in rng.sample(_SWEEP_PATHS, rng.randint(4, 12))]
+    return steps
+
+
 _PLANNERS = {
     "casual": _casual,
     "shopper": _shopper,
@@ -173,6 +225,7 @@ _PLANNERS = {
     "mobile": _mobile,
     "crawler": _crawler,
     "monitor": _monitor,
+    "scanner": _scanner,
 }
 
 

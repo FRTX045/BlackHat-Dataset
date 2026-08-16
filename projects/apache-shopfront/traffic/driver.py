@@ -41,7 +41,8 @@ import httpx
 sys.path.insert(0, "/opt/logforge")
 
 from shared.clients.ippools import ClientPool  # noqa: E402
-from shared.clients.personas import PERSONA_IDENTITY, journey  # noqa: E402
+from shared.clients.personas import (NO_REFERER, PERSONA_IDENTITY,  # noqa: E402
+                                     journey)
 from shared.clients.useragents import UserAgentPool  # noqa: E402
 from shared.timeline.sessions import plan_sessions  # noqa: E402
 from shared.truth.ids import new_request_id  # noqa: E402
@@ -57,6 +58,12 @@ _ASSET = re.compile(
 
 _ASSET_SUFFIXES = (".css", ".js", ".jpg", ".jpeg", ".png", ".gif", ".webp",
                    ".svg", ".ico", ".woff", ".woff2")
+
+#: How often a cached asset is revalidated rather than used silently. Real
+#: browsers revalidate on a mixture of cache headers, reloads and expiry; this
+#: is the single knob that stands in for all of it, and it is what puts 304s in
+#: the dataset at all.
+_REVALIDATE_CHANCE = 0.18
 
 
 class Ledger:
@@ -102,7 +109,7 @@ class Driver:
         self.issued = 0
 
     async def fetch(self, client, step_path, method, client_ip, agent,
-                    category, activity, referer):
+                    category, activity, referer, extra_headers=None):
         request_id = new_request_id()
         headers = {
             "X-Forwarded-For": client_ip,
@@ -111,6 +118,8 @@ class Driver:
         }
         if referer:
             headers["Referer"] = referer
+        if extra_headers:
+            headers.update(extra_headers)
 
         body = None
         if method == "POST" and step_path == "/api/cart":
@@ -142,17 +151,37 @@ class Driver:
         return self.rng.choice(category["products"])
 
     async def assets_for(self, client, html, page_path, client_ip, agent,
-                         activity):
-        """Request the subresources the page actually references."""
-        wanted = []
-        for path in _ASSET.findall(html):
-            if path.lower().split("?")[0].endswith(_ASSET_SUFFIXES):
-                wanted.append(path)
-        # A browser caches, so a visitor's later pages fetch fewer of them.
-        # Cap so one image-heavy listing does not dominate a session.
+                         activity, cache):
+        """Request the subresources the page references, the way a browser would.
+
+        A browser holds what it already fetched. Refetching the stylesheet on
+        every page view is what pushed static assets to 91% of a measured run
+        -- far above any real log -- so an asset already seen in this visit is
+        either served from cache and never requested at all, or revalidated
+        with a conditional GET that comes back 304. Both are what actually
+        happens, and the 304s are a response class the dataset otherwise had
+        none of.
+        """
+        wanted = [path for path in _ASSET.findall(html)
+                  if path.lower().split("?")[0].endswith(_ASSET_SUFFIXES)]
+
         for path in wanted[:40]:
-            await self.fetch(client, path, "GET", client_ip, agent,
-                             "static_asset", activity, SITE + page_path)
+            if path in cache:
+                if self.rng.random() >= _REVALIDATE_CHANCE:
+                    continue          # straight from cache; no request is made
+                response = await self.fetch(
+                    client, path, "GET", client_ip, agent, "static_asset",
+                    activity, SITE + page_path,
+                    extra_headers={"If-Modified-Since": cache[path]})
+            else:
+                response = await self.fetch(
+                    client, path, "GET", client_ip, agent, "static_asset",
+                    activity, SITE + page_path)
+
+            if response is not None:
+                last_modified = response.headers.get("last-modified")
+                if last_modified:
+                    cache[path] = last_modified
 
     async def run_session(self, client, session):
         ua_persona, role = PERSONA_IDENTITY[session.persona]
@@ -162,7 +191,10 @@ class Driver:
         async with self.per_client[client_ip]:
             steps = journey(session.persona, self.rng, self.catalogue)
             previous = None
-            fetched_assets_for = set()
+            # One browser cache per visit, holding the Last-Modified of every
+            # asset already fetched. Reset between visits, which is why a
+            # returning client pays for the cascade again.
+            cache = {}
 
             for step in steps:
                 path = step.path
@@ -173,7 +205,11 @@ class Driver:
                     path = path.replace("{order}",
                                         str(self.rng.choice(user["orders"])))
 
-                referer = step.referer if previous is None else SITE + previous
+                if session.persona in NO_REFERER:
+                    referer = None
+                else:
+                    referer = (step.referer if previous is None
+                               else SITE + previous)
                 async with self.gate:
                     response = await self.fetch(
                         client, path, step.method, client_ip, agent,
@@ -182,17 +218,18 @@ class Driver:
                 if step.method == "GET":
                     previous = path
 
-                # Only HTML pages have a cascade, and only the first visit to a
-                # given page in a session pays for it -- afterwards the browser
-                # would have them cached.
+                # Only HTML pages have a cascade, and only clients that render
+                # them pull it. A scanner and an uptime monitor fetch the
+                # document and nothing else; the per-visit cache then decides
+                # how much of the cascade a real browser actually requests.
                 if (response is not None
+                        and session.persona not in NO_REFERER
                         and response.status_code == 200
-                        and "text/html" in response.headers.get("content-type", "")
-                        and path not in fetched_assets_for):
-                    fetched_assets_for.add(path)
+                        and "text/html" in response.headers.get("content-type", "")):
                     async with self.gate:
                         await self.assets_for(client, response.text, path,
-                                              client_ip, agent, step.activity)
+                                              client_ip, agent, step.activity,
+                                              cache)
 
 
 async def main_async(args):

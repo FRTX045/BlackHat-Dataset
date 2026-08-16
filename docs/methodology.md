@@ -84,6 +84,36 @@ The verifier compares it against the derived file on every build and **reports
 the agreement as a number** — `N/N lines agreed, in order`. The assumption is
 measured rather than trusted, and a divergence is published rather than hidden.
 
+### This is not hypothetical — it has been observed
+
+On a 75,676-line run at 32-way concurrency, the two logs **disagreed on two
+lines**:
+
+```
+line 14559  access.log         100.78.35.241 ... "GET /c/fasteners HTTP/1.1" 200 1440
+            access.apache.log  100.71.46.109 ... "GET /assets/img/p/110.jpg HTTP/1.1" 200 199843
+line 14560  access.log         100.71.46.109 ... "GET /assets/img/p/110.jpg HTTP/1.1" 200 199843
+            access.apache.log  100.78.35.241 ... "GET /c/fasteners HTTP/1.1" 200 1440
+```
+
+The two lines are **swapped**. Every other line agreed, and the two files
+contain exactly the same set of lines — the divergence is purely ordering. Two
+requests arriving in the same second, from different clients, handled by
+different Apache processes, were written to the two `CustomLog` files in
+opposite orders.
+
+Under the brief's positional join those two lines would have been labelled with
+**each other's** truth records: a category listing labelled `static_asset` and
+an image labelled `browsing`. Both labels would have looked entirely plausible,
+the line counts would still have matched, and no check anywhere would have
+noticed.
+
+The derived log cannot do this. Line N of the shipped log and line N of
+`truth.jsonl` come from the same physical line of the same file, so there is no
+ordering to get wrong. Two lines in 75,676 is a rate of 0.003% — small enough to
+be missed by inspection and large enough to matter in a dataset whose whole
+purpose is being scored against.
+
 ### Attack tools
 
 Security tools will not send our header. The usual fallback is to give each tool

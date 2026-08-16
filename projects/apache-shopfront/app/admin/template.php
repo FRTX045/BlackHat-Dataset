@@ -2,21 +2,31 @@
 /**
  * Preview a notification template.
  *
- * Hardened for now: {{ }} expressions are looked up in a fixed table rather
- * than evaluated. Task 12 replaces the lookup with evaluation to create the
- * documented SSTI surface.
+ * PLANTED WEAKNESS 7 -- server-side template injection.
  *
- * Not behind the admin role check, deliberately.
+ * A {{ }} expression is evaluated rather than looked up, so it is arbitrary
+ * PHP. Not behind the admin role check either.
+ * See app/VULNERABILITIES.md.
  */
 require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/render.php';
 
 $tpl = (string) ($_GET['tpl'] ?? 'Hello {{name}}, your order is {{status}}.');
 
-$values = ['name' => 'Customer', 'status' => 'on its way', 'shop' => 'Fettle & Co'];
+$name = 'Customer';
+$status = 'on its way';
+$shop = 'Fettle & Co';
+
 $rendered = preg_replace_callback(
-    '/\{\{\s*([a-z_]+)\s*\}\}/i',
-    static fn ($m) => $values[strtolower($m[1])] ?? '',
+    '/\{\{(.+?)\}\}/',
+    static function (array $m) {
+        try {
+            // The bug: the expression is evaluated, not resolved.
+            return (string) @eval('return ' . $m[1] . ';');
+        } catch (Throwable $e) {
+            return '';
+        }
+    },
     $tpl);
 
 layout_head('Template preview');

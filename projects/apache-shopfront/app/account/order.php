@@ -2,8 +2,13 @@
 /**
  * A single order.
  *
- * Scoped to the signed-in user here. Task 12 removes that scope deliberately
- * to create the IDOR surface, and VULNERABILITIES.md records the change.
+ * PLANTED WEAKNESS 2 -- insecure direct object reference.
+ *
+ * The lookup requires a session but never checks that the order belongs to it.
+ * Order ids are sequential integers interleaved across customers, so walking
+ * them lands on other people's orders. /account/addresses does the same shape
+ * of lookup and stays scoped, which is what makes the difference legible.
+ * See app/VULNERABILITIES.md.
  */
 require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/render.php';
@@ -11,8 +16,8 @@ require __DIR__ . '/../lib/render.php';
 $user = require_login();
 $id = (int) ($_GET['id'] ?? 0);
 
-$st = db()->prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?');
-$st->execute([$id, $user['id']]);
+$st = db()->prepare('SELECT * FROM orders WHERE id = ?');
+$st->execute([$id]);
 $order = $st->fetch();
 
 if ($order === false) {

@@ -2,13 +2,17 @@
 /**
  * Avatar upload.
  *
- * The check here is on the MIME type the browser declares and the extension,
- * which is exactly the shape of check real applications get wrong. Task 12
- * widens it into the documented upload bypass; for now it accepts an image and
- * rejects anything else.
+ * PLANTED WEAKNESS 5 -- upload bypass ending in a webshell.
  *
- * The upload directory executes PHP -- that part is already deliberate, and
- * configured in the vhost.
+ * Two bugs compound, which is how this happens in the wild. The extension
+ * check looks only at the last extension, so shell.php.jpg passes; and the
+ * uploaded file keeps its original name instead of being renamed, so the
+ * .php in the middle survives. The vhost then applies AddHandler to the
+ * uploads directory, and mod_mime runs anything with .php among its
+ * extensions -- including shell.php.jpg.
+ *
+ * A plainly-named shell.php is still refused, which is what makes the double
+ * extension the interesting path. See app/VULNERABILITIES.md.
  */
 require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/render.php';
@@ -29,8 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['avatar'])) {
             http_response_code(415);
             $error = 'Pictures only, please.';
         } else {
-            $name = sprintf('u%d-%s.%s', $user['id'],
-                            substr(sha1($file['name'] . $user['id']), 0, 10), $extension);
+            // The original name is kept, minus any directory part. Renaming it
+            // to a generated stem would defuse the double-extension bypass.
+            $name = basename(str_replace('\\', '/', $file['name']));
             $target = __DIR__ . '/../uploads/' . $name;
             move_uploaded_file($file['tmp_name'], $target);
 

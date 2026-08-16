@@ -2,11 +2,12 @@
 /**
  * Reachability check for a host.
  *
- * Hardened for now with escapeshellarg. Task 12 removes that to create the
- * documented command-injection surface; the change and what a successful
- * exploit looks like in the log are recorded in VULNERABILITIES.md.
+ * PLANTED WEAKNESS 6 -- command injection.
  *
- * Not behind the admin role check, deliberately.
+ * The host is interpolated into a shell command with no quoting, so a
+ * semicolon appends a second command. Not behind the admin role check either,
+ * so any signed-in customer who finds it can reach it.
+ * See app/VULNERABILITIES.md.
  */
 require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/render.php';
@@ -15,7 +16,7 @@ $host = (string) ($_GET['host'] ?? '');
 $output = null;
 
 if ($host !== '') {
-    $output = shell_exec('ping -c 1 -W 1 ' . escapeshellarg($host) . ' 2>&1');
+    $output = shell_exec('ping -c 1 -W 1 ' . $host . ' 2>&1');
 }
 
 layout_head('Check a host');

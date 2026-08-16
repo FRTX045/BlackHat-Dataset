@@ -1,15 +1,15 @@
 # apache-shopfront — small — 2026-08-16
 
-83,945 lines of Apache Combined access log, with a ground-truth
+75,474 lines of Apache Combined access log, with a ground-truth
 record for every one of them.
 
 | | |
 |---|---|
-| Lines | 83,945 |
+| Lines | 75,474 |
 | Seed | `7` |
-| Commit | `b984cee082f208fac53e78e6318e1f8963e26790` |
-| Built | 2026-08-16T18:30:05.577992+00:00 |
-| Wall clock | 217.05s |
+| Commit | `cf823b3b6431a0a25aeb633c015f1df06cfa97c3` |
+| Built | 2026-08-16T19:19:32.750992+00:00 |
+| Wall clock | 214.928s |
 
 ## How this dataset was produced
 
@@ -17,7 +17,7 @@ record for every one of them.
 
 Apache 2.4.68 (Debian) with PHP 8.3.33 under `mpm_prefork`, in Docker, built
 from `php:8.3-apache`. Image actually used:
-`logforge/apache-shopfront-web@sha256:ae39cea45c487e1ae6bc49ada2e764fa613401b34e2510fccfe7973f300de426`.
+`logforge/apache-shopfront-web@sha256:4bf3789dd55f2160ce8e5565f4ea45e8a125fbaf9b19c79dffc60257bd413689`.
 
 Modules: `mod_remoteip`, `mod_php`, `mod_rewrite`, `mod_headers`,
 `mod_deflate`, `mod_setenvif`. Two server-level `CustomLog` directives,
@@ -40,15 +40,15 @@ browser cache that revalidates rather than refetches.
 
 Measured for this run:
 
-- **913 distinct clients**, top-10 share
-  0.3176, busiest made
-  6,204 requests
+- **911 distinct clients**, top-10 share
+  0.2543, busiest made
+  5,984 requests
 - **53 distinct user agents**, top-1 share
-  0.2108
-- Referer present on 48.54%
+  0.2338
+- Referer present on 64.66%
   of non-asset requests
 - Inter-arrival coefficient of variation
-  8.8371
+  9.6312
 
 No headless-browser traffic: Playwright was not built. The cascades are real
 requests for real subresources, ordered by the driver rather than by Chromium.
@@ -58,7 +58,7 @@ requests for real subresources, ordered by the driver rather than by Chromium.
 **The timestamps in `access.log` were rewritten, and `access.raw.log` is
 the log Apache actually wrote.** The driver issues its whole plan as fast as
 the sockets allow, so the capture covers
-203 seconds — the request *sequence* is
+202 seconds — the request *sequence* is
 meaningful and the timing is not.
 
 The rewrite moves each session's start onto the same diurnal and weekly curves
@@ -75,22 +75,22 @@ from. If you need the unrewritten article, it is `access.raw.log` with
 
 | | |
 |---|---|
-| Window | 2026-03-09T00:00:48.713548+00:00 → 2026-03-10T01:22:09.642533+00:00 |
-| Span | 1.06 days |
-| Days covered | 2 |
-| Achieved rate | 0.9196 requests/second |
-| Busiest second | 22 requests |
-| Sessions | 2,393 (84 pushed later to keep one session per address at a time) |
+| Window | 2026-03-09T00:00:48.713548+00:00 → 2026-03-09T23:55:56.602090+00:00 |
+| Span | 1.00 days |
+| Days covered | 1 |
+| Achieved rate | 0.8765 requests/second |
+| Busiest second | 24 requests |
+| Sessions | 2,301 (33 pushed later to keep one session per address at a time) |
 
 ### Which tools produced the attack traffic
 
 | Tool | Version | Source IP | Requests | Exit | What it was pointed at |
 |---|---|---|---|---|---|
 | whatweb | `0.5.5-1` | 192.0.2.32 | 6 | 0 | the site root, fingerprinting |
-| dirb | `2.22+dfsg-5` | 198.51.100.31 | 4,619 | 0 | / with dirb's common wordlist |
-| gobuster | `3.5.0-1+b1` | 198.51.100.33 | 4,615 | 0 | / with dirb's common wordlist, at four threads |
-| nmap | `7.93+dfsg1-1` | 198.51.100.32 | 8 | 0 | the proxy's HTTP port with http-* NSE scripts |
-| sqlmap | `1.7.2-1` | 192.0.2.31 | 45 | 0 | the planted SQL injection on /search |
+| dirb | `2.22+dfsg-5` | 198.51.100.35 | 961 | 0 | / with dirb's small wordlist |
+| gobuster | `3.5.0-1+b1` | 198.51.100.34 | 961 | 0 | / with dirb's small wordlist, at four threads |
+| nmap | `7.93+dfsg1-1` | 198.51.100.32 | 10 | 0 | the proxy's HTTP port with http-* NSE scripts |
+| sqlmap | `1.7.2-1` | 192.0.2.31 | 47 | 0 | the planted SQL injection on /search |
 
 The **Requests** column is the count the tag proxy actually recorded from each tool's address, not a count of tools that were started. A tool that ran, exited cleanly and reached nothing would otherwise be indistinguishable here from one that worked; the build refuses to finish if any of them is zero.
 
@@ -108,7 +108,7 @@ ordinary browsing interleaved:
 
 4 of 6 campaigns found something;
 2 did not. Attack traffic is
-**2.85%** of all lines.
+**5.68%** of all lines.
 
 An attack alone in a quiet window is separable on timestamp without reading a
 single request, so the campaigns and tool runs are issued *concurrently* with
@@ -116,8 +116,8 @@ the ordinary traffic. Two figures, because one is not enough:
 
 | | |
 |---|---|
-| Attack lines sharing their exact second with ordinary traffic | 36.11% |
-| Attack lines with ordinary traffic within ±30s | **97.11%** |
+| Attack lines sharing their exact second with ordinary traffic | 27.71% |
+| Attack lines with ordinary traffic within ±30s | **94.40%** |
 
 The first falls with the request rate for reasons that have nothing to do with
 how well the attack is hidden — a log at one request a second has almost no
@@ -132,7 +132,7 @@ log with that prefix removed, so line N of the log and line N of its truth
 file are the same request by construction.
 
 - Derived vs the log Apache wrote independently, on
-  `access.raw.log`: **83935/83945 lines agreed; Apache's own log has 83945 lines; first divergence at line 1731**
+  `access.raw.log`: **75474/75474 lines agreed, in order**
 - Unmatched request ids: **144**
 - Of those, labelled by reserved source address:
   **94**
@@ -141,7 +141,7 @@ file are the same request by construction.
 ### How to rebuild it
 
 ```bash
-git checkout b984cee082f208fac53e78e6318e1f8963e26790
+git checkout cf823b3b6431a0a25aeb633c015f1df06cfa97c3
 python3 tools/build.py apache-shopfront small
 ```
 
@@ -153,17 +153,17 @@ and does not claim to be.
 
 | Category | Share |
 |---|---|
-| `static_asset` | 70.19% |
-| `browsing` | 18.86% |
-| `api_call` | 4.27% |
-| `crawling` | 3.43% |
-| `enumeration` | 1.70% |
-| `reconnaissance` | 0.93% |
-| `authentication` | 0.34% |
-| `access_control` | 0.15% |
-| `unknown` | 0.06% |
-| `injection` | 0.02% |
-| `credential_attack` | 0.02% |
+| `static_asset` | 76.79% |
+| `browsing` | 8.72% |
+| `api_call` | 4.64% |
+| `enumeration` | 4.48% |
+| `crawling` | 3.73% |
+| `reconnaissance` | 1.03% |
+| `authentication` | 0.37% |
+| `injection` | 0.09% |
+| `unknown` | 0.07% |
+| `access_control` | 0.04% |
+| `credential_attack` | 0.03% |
 | `exploitation` | 0.01% |
 | `path_traversal` | 0.01% |
 | `ssrf` | 0.01% |
@@ -172,14 +172,14 @@ and does not claim to be.
 
 | Status | Share |
 |---|---|
-| `200` | 67.88% |
+| `200` | 74.69% |
 | `301` | 0.02% |
-| `302` | 0.33% |
-| `304` | 18.16% |
-| `400` | 0.11% |
+| `302` | 0.39% |
+| `304` | 19.40% |
+| `400` | 0.12% |
 | `401` | 0.01% |
-| `403` | 0.13% |
-| `404` | 13.31% |
+| `403` | 0.12% |
+| `404` | 5.19% |
 | `429` | 0.05% |
 | `500` | 0.00% |
 | `504` | 0.00% |
@@ -204,8 +204,8 @@ python3 tools/audit.py <this directory> --compare access.raw.log
 
 Written as they are, not as one would like them.
 
-- **Attack share is 2.85%.** The target is 2–8%.
-- **Static assets are 70.19%
+- **Attack share is 5.68%.** The target is 2–8%.
+- **Static assets are 76.79%
   of all lines.** High, though an image-heavy shop genuinely looks like this.
 - **XSS is barely visible in an access log.** The reflected payload appears in
   `%r`; retrieval of a stored payload is indistinguishable from ordinary
@@ -217,7 +217,7 @@ Written as they are, not as one would like them.
   analysis is meaningless on this data.
 - **The clock is reconstructed, not captured.** Session starts follow the arrival model rather than anything that was observed, and within-session spacing is inferred from each request's label. Use `access.raw.log` if you need what the server recorded.
 - **Single-request clients are
-  2.41% of clients**, far below what the
+  2.52% of clients**, far below what the
   address pool draws. In a log carrying asset cascades a one-page visitor still
   makes twenty requests; the pool's draw distribution and the log's per-client
   distribution are different things.

@@ -26,6 +26,10 @@ def line(ip="203.0.113.5", h=1, s=0, path="/", size=1200):
     return LINE.format(ip=ip, ts=TS.format(h=h, s=s), path=path, size=size)
 
 
+def parse_ip(log_line):
+    return log_line.split(" ", 1)[0]
+
+
 def truth_file(records, source="access.log"):
     header = {"kind": "weblog-truth", "version": 1, "scenario": "x",
               "seed": 7, "source_file_id": source, "granularity": "category",
@@ -109,6 +113,38 @@ class TestItCatchesCorruption(unittest.TestCase):
 
 
 class TestItDoesNotInventProblems(unittest.TestCase):
+
+    def test_a_sample_whose_first_line_appears_earlier_is_still_a_slice(self):
+        # Real logs repeat lines: the same address, second, path, status and
+        # size recur constantly, and at a million lines it is close to
+        # certain. Anchoring the search on the first occurrence of the
+        # sample's first line finds the wrong one and reports a perfectly
+        # good sample as corrupt -- which is exactly what happened on the
+        # first large build.
+        d = Path(tempfile.mkdtemp())
+        # A duplicate in a real log is identical including its timestamp:
+        # the same client, second, path, status and size. Two of them next to
+        # each other, then a genuine slice that starts at the second one.
+        repeated = line(ip="203.0.113.5", h=1, s=0)
+        shipped = [repeated, repeated, line(ip="203.0.113.6", h=1, s=1),
+                   line(ip="203.0.113.7", h=1, s=2),
+                   line(ip="203.0.113.8", h=1, s=3)]
+        records = [{"line_no": i + 1,
+                    "client_ip": parse_ip(x), "category": "browsing",
+                    "instance_id": f"{parse_ip(x)}-1"}
+                   for i, x in enumerate(shipped)]
+        (d / "access.log").write_text("\n".join(shipped) + "\n")
+        (d / "truth.jsonl").write_text(truth_file(records))
+
+        # A genuine contiguous slice starting at the *second* occurrence.
+        sample = shipped[1:4]
+        (d / "sample.log").write_text("\n".join(sample) + "\n")
+        (d / "sample.truth.jsonl").write_text(truth_file(
+            [{"line_no": i + 1, "client_ip": parse_ip(x),
+              "category": "browsing", "instance_id": f"{parse_ip(x)}-1"}
+             for i, x in enumerate(sample)], "sample.log"))
+
+        self.assertEqual(check_dataset(d), [])
 
     def test_a_missing_optional_file_is_not_a_failure(self):
         # A dataset built before the sample existed, or one whose release

@@ -156,11 +156,23 @@ def _check_sample(dataset, shipped):
     if not sample:
         return ["sample.log is empty"]
 
-    try:
-        start = shipped.index(sample[0])
-        contiguous = shipped[start:start + len(sample)] == sample
-    except ValueError:
-        contiguous = False
+    # Every position the sample could start at, not just the first.
+    #
+    # Real logs repeat lines constantly -- the same address, second, path,
+    # status and size -- and at a million lines it is close to certain that
+    # the sample's first line appears earlier too. Anchoring on the first
+    # occurrence finds the wrong one and reports a perfectly good sample as
+    # corrupt, which is what happened on the first large build.
+    contiguous = False
+    start = -1
+    while True:
+        try:
+            start = shipped.index(sample[0], start + 1)
+        except ValueError:
+            break
+        if shipped[start:start + len(sample)] == sample:
+            contiguous = True
+            break
     if not contiguous:
         problems.append(
             "sample.log is not a contiguous slice of access.log")

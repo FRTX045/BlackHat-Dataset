@@ -5,14 +5,14 @@
   "tier": "small",
   "scenario_file": "projects/apache-shopfront/scenarios/small.toml",
   "seed": 7,
-  "commit": "cf823b3b6431a0a25aeb633c015f1df06cfa97c3",
+  "commit": "718fa5607d445909946c6a9a8e55c2ea19e90576",
   "commit_is_clean": false,
-  "started_at": "2026-08-16T19:19:32.750992+00:00",
-  "finished_at": "2026-08-16T19:23:07.678983+00:00",
-  "wall_clock_seconds": 214.928,
-  "base_image_digest": "logforge/apache-shopfront-web@sha256:4bf3789dd55f2160ce8e5565f4ea45e8a125fbaf9b19c79dffc60257bd413689",
-  "lines": 75474,
-  "unmatched_request_ids": 144,
+  "started_at": "2026-08-17T02:06:46.207018+00:00",
+  "finished_at": "2026-08-17T02:10:32.640397+00:00",
+  "wall_clock_seconds": 226.433,
+  "base_image_digest": "logforge/apache-shopfront-web@sha256:a74fc18a90b7fc301a4e9f84582793fd6ec1b2f36385bce6f74b6958a199a4ba",
+  "lines": 78112,
+  "unmatched_request_ids": 168,
   "unparsed_log_lines": 0,
   "address_fallback_lines": 94,
   "timestamps": {
@@ -20,11 +20,11 @@
     "capture_file": "access.raw.log",
     "capture_truth_file": "truth.raw.jsonl",
     "start": "2026-03-09T00:00:48.713548+00:00",
-    "end": "2026-03-09T23:55:56.602090+00:00",
-    "span_seconds": 86107.889,
-    "captured_span_seconds": 202.0,
-    "sessions": 2301,
-    "sessions_pushed": 33,
+    "end": "2026-03-09T23:54:51.937049+00:00",
+    "span_seconds": 86043.224,
+    "captured_span_seconds": 211.0,
+    "sessions": 2524,
+    "sessions_pushed": 32,
     "description": "Timestamps were rewritten: session starts redrawn from the diurnal and weekly curves, spacing within a session reconstructed from what each request was. Every other byte of every line, and the order of requests within a session, is as captured. access.raw.log is the log Apache wrote."
   },
   "audit": {
@@ -37,7 +37,7 @@
     "findings": [
       {
         "name": "round_response_sizes",
-        "measured": 0.04,
+        "measured": 0.0402,
         "threshold": 0.25,
         "suspicious": false,
         "inconclusive": false,
@@ -45,7 +45,7 @@
       },
       {
         "name": "implausible_rate",
-        "measured": 0.877,
+        "measured": 0.908,
         "threshold": 50.0,
         "suspicious": false,
         "inconclusive": false,
@@ -53,7 +53,7 @@
       },
       {
         "name": "agent_monoculture",
-        "measured": 0.2338,
+        "measured": 0.2316,
         "threshold": 0.55,
         "suspicious": false,
         "inconclusive": false,
@@ -61,7 +61,7 @@
       },
       {
         "name": "uniform_client_volumes",
-        "measured": 3.1743,
+        "measured": 3.2397,
         "threshold": 1.0,
         "suspicious": false,
         "inconclusive": false,
@@ -105,7 +105,7 @@
       },
       {
         "name": "sequential_client_addresses",
-        "measured": 0.0867,
+        "measured": 0.0921,
         "threshold": 0.75,
         "suspicious": false,
         "inconclusive": false,
@@ -113,13 +113,24 @@
       }
     ]
   },
+  "browser": {
+    "personas": [
+      "desktop-laptop",
+      "desktop-returning",
+      "desktop-wide",
+      "mobile-android",
+      "tablet"
+    ],
+    "requests": 622,
+    "exit_code": 0
+  },
   "derived_vs_apache_combined": {
     "compared_file": "access.raw.log",
-    "agreed": 75474,
-    "derived_lines": 75474,
-    "apache_lines": 75474,
-    "first_divergence": null,
-    "summary": "75474/75474 lines agreed, in order"
+    "agreed": 78107,
+    "derived_lines": 78112,
+    "apache_lines": 78112,
+    "first_divergence": 1269,
+    "summary": "78107/78112 lines agreed; Apache's own log has 78112 lines; first divergence at line 1269"
   },
   "truth_validation_errors": [],
   "tool_runs": [
@@ -131,9 +142,9 @@
       "source_ip": "192.0.2.32",
       "network": "lab_dc",
       "target": "the site root, fingerprinting",
-      "started_at": "2026-08-16T19:19:40.447022+00:00",
-      "finished_at": "2026-08-16T19:19:48.155990+00:00",
-      "seconds": 7.709,
+      "started_at": "2026-08-17T02:06:54.876654+00:00",
+      "finished_at": "2026-08-17T02:07:03.779999+00:00",
+      "seconds": 8.903,
       "exit_code": 0,
       "timed_out": false,
       "requests": 6
@@ -146,9 +157,9 @@
       "source_ip": "198.51.100.35",
       "network": "lab_cloud",
       "target": "/ with dirb's small wordlist",
-      "started_at": "2026-08-16T19:19:40.447637+00:00",
-      "finished_at": "2026-08-16T19:20:00.453327+00:00",
-      "seconds": 20.006,
+      "started_at": "2026-08-17T02:06:54.877948+00:00",
+      "finished_at": "2026-08-17T02:07:16.095579+00:00",
+      "seconds": 21.218,
       "exit_code": 0,
       "timed_out": false,
       "requests": 961
@@ -161,9 +172,9 @@
       "source_ip": "198.51.100.34",
       "network": "lab_cloud",
       "target": "/ with dirb's small wordlist, at four threads",
-      "started_at": "2026-08-16T19:19:40.448678+00:00",
-      "finished_at": "2026-08-16T19:19:49.417859+00:00",
-      "seconds": 8.969,
+      "started_at": "2026-08-17T02:06:54.879941+00:00",
+      "finished_at": "2026-08-17T02:07:04.847893+00:00",
+      "seconds": 9.968,
       "exit_code": 0,
       "timed_out": false,
       "requests": 961
@@ -176,9 +187,9 @@
       "source_ip": "198.51.100.32",
       "network": "lab_cloud",
       "target": "the proxy's HTTP port with http-* NSE scripts",
-      "started_at": "2026-08-16T19:19:40.456909+00:00",
-      "finished_at": "2026-08-16T19:20:07.260220+00:00",
-      "seconds": 26.803,
+      "started_at": "2026-08-17T02:06:54.883990+00:00",
+      "finished_at": "2026-08-17T02:07:22.293080+00:00",
+      "seconds": 27.409,
       "exit_code": 0,
       "timed_out": false,
       "requests": 10
@@ -191,12 +202,12 @@
       "source_ip": "192.0.2.31",
       "network": "lab_dc",
       "target": "the planted SQL injection on /search",
-      "started_at": "2026-08-16T19:19:40.459460+00:00",
-      "finished_at": "2026-08-16T19:19:45.105199+00:00",
-      "seconds": 4.646,
+      "started_at": "2026-08-17T02:06:54.887993+00:00",
+      "finished_at": "2026-08-17T02:07:00.864412+00:00",
+      "seconds": 5.976,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 47
+      "requests": 50
     }
   ],
   "campaigns": [

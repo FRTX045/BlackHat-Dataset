@@ -1,15 +1,15 @@
-# apache-shopfront — medium — 2026-08-16
+# apache-shopfront — small — 2026-08-17
 
-218,151 lines of Apache Combined access log, with a ground-truth
+78,112 lines of Apache Combined access log, with a ground-truth
 record for every one of them.
 
 | | |
 |---|---|
-| Lines | 218,151 |
-| Seed | `19` |
-| Commit | `cf823b3b6431a0a25aeb633c015f1df06cfa97c3` |
-| Built | 2026-08-16T19:27:04.839755+00:00 |
-| Wall clock | 628.345s |
+| Lines | 78,112 |
+| Seed | `7` |
+| Commit | `718fa5607d445909946c6a9a8e55c2ea19e90576` |
+| Built | 2026-08-17T02:06:46.207018+00:00 |
+| Wall clock | 226.433s |
 
 ## How this dataset was produced
 
@@ -17,7 +17,7 @@ record for every one of them.
 
 Apache 2.4.68 (Debian) with PHP 8.3.33 under `mpm_prefork`, in Docker, built
 from `php:8.3-apache`. Image actually used:
-`logforge/apache-shopfront-web@sha256:9e5bd1eaaa7888de176ce6e4d920a4b0a8973ea78b0b065a085edae063505f02`.
+`logforge/apache-shopfront-web@sha256:a74fc18a90b7fc301a4e9f84582793fd6ec1b2f36385bce6f74b6958a199a4ba`.
 
 Modules: `mod_remoteip`, `mod_php`, `mod_rewrite`, `mod_headers`,
 `mod_deflate`, `mod_setenvif`. Two server-level `CustomLog` directives,
@@ -27,7 +27,7 @@ No host port published. `/.lab-health` excluded from both logs.
 ### The application
 
 A PHP 8.3 + SQLite shopfront, 130 products across 10 categories, seeded from
-`19`. Deliberately vulnerable in 8 documented places and
+`7`. Deliberately vulnerable in 8 documented places and
 hardened in 5 others — see `projects/apache-shopfront/app/VULNERABILITIES.md`. Never
 reachable beyond its three Docker networks.
 
@@ -40,25 +40,45 @@ browser cache that revalidates rather than refetches.
 
 Measured for this run:
 
-- **2,149 distinct clients**, top-10 share
-  0.2345, busiest made
-  14,629 requests
-- **54 distinct user agents**, top-1 share
-  0.197
-- Referer present on 61.55%
+- **934 distinct clients**, top-10 share
+  0.2506, busiest made
+  6,426 requests
+- **55 distinct user agents**, top-1 share
+  0.2316
+- Referer present on 64.73%
   of non-asset requests
 - Inter-arrival coefficient of variation
-  10.0219
+  8.8216
 
-No headless-browser traffic: Playwright was not built. The cascades are real
-requests for real subresources, ordered by the driver rather than by Chromium.
+**622 of these requests came from a real Chromium**, driven
+by Playwright across 5 personas
+(`desktop-laptop`, `desktop-returning`, `desktop-wide`, `mobile-android`, `tablet`). That traffic is not
+built by the driver at all: the browser was handed a URL and the log records
+what Chromium chose to ask for.
+
+It is a small share of the log and worth more than its size. A browser asks
+for a page's subresources in an order no hand-rolled driver reproduces — the
+preload scanner runs first, fonts wait for the CSS that references them to
+parse, XHR interleaves with lazily-loaded images across six connections. It
+also *declines* to make requests, because a second page view asks for nothing
+already in its cache, and absence is as much a part of a real log as presence.
+The conditional requests in this traffic come from Chromium's own cache
+deciding to revalidate rather than from a coin flip.
+
+No request interception was used. Playwright can rewrite headers per request,
+which would have let the browser mint its own request ids, but it disables the
+HTTP cache — and the cache is most of why running a browser is worth anything.
+The tag proxy mints the ids instead, exactly as it does for the security
+tools, so this traffic is labelled per request. One consequence: a browser
+`instance_id` is a run of one activity rather than a whole session, which is
+what `instance_id` already means for every proxy-labelled source here.
 
 #### When it says it happened
 
 **The timestamps in `access.log` were rewritten, and `access.raw.log` is
 the log Apache actually wrote.** The driver issues its whole plan as fast as
 the sockets allow, so the capture covers
-598 seconds — the request *sequence* is
+211 seconds — the request *sequence* is
 meaningful and the timing is not.
 
 The rewrite moves each session's start onto the same diurnal and weekly curves
@@ -75,22 +95,22 @@ from. If you need the unrewritten article, it is `access.raw.log` with
 
 | | |
 |---|---|
-| Window | 2026-03-09T00:02:20.580286+00:00 → 2026-03-15T23:54:33.404672+00:00 |
-| Span | 6.99 days |
-| Days covered | 7 |
-| Achieved rate | 0.361 requests/second |
-| Busiest second | 22 requests |
-| Sessions | 6,293 (31 pushed later to keep one session per address at a time) |
+| Window | 2026-03-09T00:00:48.713548+00:00 → 2026-03-09T23:54:51.937049+00:00 |
+| Span | 1.00 days |
+| Days covered | 1 |
+| Achieved rate | 0.9078 requests/second |
+| Busiest second | 24 requests |
+| Sessions | 2,524 (32 pushed later to keep one session per address at a time) |
 
 ### Which tools produced the attack traffic
 
 | Tool | Version | Source IP | Requests | Exit | What it was pointed at |
 |---|---|---|---|---|---|
 | whatweb | `0.5.5-1` | 192.0.2.32 | 6 | 0 | the site root, fingerprinting |
-| dirb | `2.22+dfsg-5` | 198.51.100.31 | 4,619 | 0 | / with dirb's common wordlist |
-| gobuster | `3.5.0-1+b1` | 198.51.100.33 | 4,615 | 0 | / with dirb's common wordlist, at four threads |
+| dirb | `2.22+dfsg-5` | 198.51.100.35 | 961 | 0 | / with dirb's small wordlist |
+| gobuster | `3.5.0-1+b1` | 198.51.100.34 | 961 | 0 | / with dirb's small wordlist, at four threads |
 | nmap | `7.93+dfsg1-1` | 198.51.100.32 | 10 | 0 | the proxy's HTTP port with http-* NSE scripts |
-| sqlmap | `1.7.2-1` | 192.0.2.31 | 48 | 0 | the planted SQL injection on /search |
+| sqlmap | `1.7.2-1` | 192.0.2.31 | 50 | 0 | the planted SQL injection on /search |
 
 The **Requests** column is the count the tag proxy actually recorded from each tool's address, not a count of tools that were started. A tool that ran, exited cleanly and reached nothing would otherwise be indistinguishable here from one that worked; the build refuses to finish if any of them is zero.
 
@@ -108,7 +128,7 @@ ordinary browsing interleaved:
 
 4 of 6 campaigns found something;
 2 did not. Attack traffic is
-**7.36%** of all lines.
+**5.55%** of all lines.
 
 An attack alone in a quiet window is separable on timestamp without reading a
 single request, so the campaigns and tool runs are issued *concurrently* with
@@ -116,8 +136,8 @@ the ordinary traffic. Two figures, because one is not enough:
 
 | | |
 |---|---|
-| Attack lines sharing their exact second with ordinary traffic | 9.34% |
-| Attack lines with ordinary traffic within ±30s | **57.52%** |
+| Attack lines sharing their exact second with ordinary traffic | 27.50% |
+| Attack lines with ordinary traffic within ±30s | **91.14%** |
 
 The first falls with the request rate for reasons that have nothing to do with
 how well the attack is hidden — a log at one request a second has almost no
@@ -132,17 +152,17 @@ log with that prefix removed, so line N of the log and line N of its truth
 file are the same request by construction.
 
 - Derived vs the log Apache wrote independently, on
-  `access.raw.log`: **218135/218151 lines agreed; Apache's own log has 218151 lines; first divergence at line 1870**
-- Unmatched request ids: **400**
+  `access.raw.log`: **78107/78112 lines agreed; Apache's own log has 78112 lines; first divergence at line 1269**
+- Unmatched request ids: **168**
 - Of those, labelled by reserved source address:
-  **294**
+  **94**
 - Lines that did not parse as Combined: **0**
 
 ### How to rebuild it
 
 ```bash
-git checkout cf823b3b6431a0a25aeb633c015f1df06cfa97c3
-python3 tools/build.py apache-shopfront medium
+git checkout 718fa5607d445909946c6a9a8e55c2ea19e90576
+python3 tools/build.py apache-shopfront small
 ```
 
 The same seed reproduces the same request sequence. Timestamps and interleaving
@@ -153,35 +173,35 @@ and does not claim to be.
 
 | Category | Share |
 |---|---|
-| `static_asset` | 75.64% |
-| `browsing` | 8.57% |
-| `enumeration` | 6.25% |
-| `api_call` | 4.62% |
-| `crawling` | 3.42% |
-| `reconnaissance` | 1.05% |
-| `authentication` | 0.35% |
-| `unknown` | 0.05% |
-| `injection` | 0.03% |
-| `access_control` | 0.01% |
-| `credential_attack` | 0.01% |
-| `exploitation` | 0.00% |
-| `path_traversal` | 0.00% |
-| `ssrf` | 0.00% |
+| `static_asset` | 76.93% |
+| `browsing` | 8.70% |
+| `api_call` | 4.72% |
+| `enumeration` | 4.34% |
+| `crawling` | 3.66% |
+| `reconnaissance` | 1.03% |
+| `authentication` | 0.36% |
+| `unknown` | 0.09% |
+| `injection` | 0.09% |
+| `access_control` | 0.04% |
+| `credential_attack` | 0.02% |
+| `exploitation` | 0.01% |
+| `path_traversal` | 0.01% |
+| `ssrf` | 0.01% |
 
 ## Status distribution
 
 | Status | Share |
 |---|---|
-| `200` | 72.95% |
-| `301` | 0.01% |
-| `302` | 0.36% |
-| `304` | 19.37% |
-| `400` | 0.15% |
-| `401` | 0.00% |
-| `403` | 0.13% |
-| `404` | 6.99% |
-| `429` | 0.04% |
-| `500` | 0.01% |
+| `200` | 74.64% |
+| `301` | 0.02% |
+| `302` | 0.33% |
+| `304` | 19.66% |
+| `400` | 0.12% |
+| `401` | 0.01% |
+| `403` | 0.12% |
+| `404` | 5.05% |
+| `429` | 0.05% |
+| `500` | 0.00% |
 | `504` | 0.00% |
 
 ## Does it look generated?
@@ -204,8 +224,8 @@ python3 tools/audit.py <this directory> --compare access.raw.log
 
 Written as they are, not as one would like them.
 
-- **Attack share is 7.36%.** The target is 2–8%.
-- **Static assets are 75.64%
+- **Attack share is 5.55%.** The target is 2–8%.
+- **Static assets are 76.93%
   of all lines.** High, though an image-heavy shop genuinely looks like this.
 - **XSS is barely visible in an access log.** The reflected payload appears in
   `%r`; retrieval of a stored payload is indistinguishable from ordinary
@@ -217,7 +237,7 @@ Written as they are, not as one would like them.
   analysis is meaningless on this data.
 - **The clock is reconstructed, not captured.** Session starts follow the arrival model rather than anything that was observed, and within-session spacing is inferred from each request's label. Use `access.raw.log` if you need what the server recorded.
 - **Single-request clients are
-  1.91% of clients**, far below what the
+  2.46% of clients**, far below what the
   address pool draws. In a log carrying asset cascades a one-page visitor still
   makes twenty requests; the pool's draw distribution and the log's per-client
   distribution are different things.

@@ -304,7 +304,7 @@ def timestamp_block(remap):
 def build_manifest(*, project, tier, scenario, scenario_path, started_at,
                    finished_at, report, agreement, truth_errors, repo,
                    base_image_digest, tool_runs, campaigns=(), remap=None,
-                   tells=()):
+                   tells=(), browser=None):
     """Assemble the record of how this dataset came to exist."""
     return {
         "kind": "logforge-manifest",
@@ -332,6 +332,9 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         "address_fallback_lines": report.address_fallback_lines,
         "timestamps": timestamp_block(remap),
         "audit": audit_block(tells),
+        # Empty when no headless browser ran, which is a fact about the build
+        # and is stated in the dataset README rather than left to inference.
+        "browser": browser,
         "derived_vs_apache_combined": {
             # Named explicitly: once timestamps are remapped this check runs
             # against the capture, not the shipped log. Comparing a rewritten
@@ -392,12 +395,17 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
 
     def drive():
         traffic = scenario.get("traffic", {})
+        # The window the log will claim to cover, so the plan is a function of
+        # the scenario and the seed rather than of what time the build ran.
+        window_start = scenario.get("timeline", {}).get(
+            "start", started_at.isoformat())
         stack.once(
             "driver",
             "python", "/opt/logforge/projects/apache-shopfront/traffic/driver.py",
             "--ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/driver.jsonl",
             "--catalogue=/opt/logforge/projects/apache-shopfront/app/data/catalogue.json",
             f"--seed={scenario['seed']}",
+            f"--start={window_start}",
             f"--duration={traffic.get('duration_seconds', 300)}",
             f"--rate={traffic.get('session_rate', 0.06)}",
             f"--concurrency={traffic.get('concurrency', 32)}",
@@ -535,13 +543,55 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
                 f"all. Recording them as having run would put attacks in the "
                 f"dataset that never happened.\n{why}")
 
+    def run_browsers():
+        """Real Chromium sessions, alongside everything else.
+
+        The browser is the only source here that does not decide what to
+        request: it is handed a URL and the log records what Chromium chose to
+        ask for, in the order it chose, including the requests it declined to
+        make because the response was already in its cache.
+        """
+        browsers = scenario.get("browser", {})
+        state["browser"] = {}
+        if not browsers.get("enabled"):
+            return
+
+        sys.path.insert(0, str(project_dir / "traffic"))
+        from browser import BROWSER_PERSONAS  # noqa: PLC0415
+
+        wanted = browsers.get("personas") or [p.name for p in BROWSER_PERSONAS]
+        outcome = stack.once(
+            "browser", "python",
+            "/opt/logforge/projects/apache-shopfront/traffic/browser.py",
+            f"--seed={scenario['seed']}",
+            f"--pace={browsers.get('pace', 1.0)}",
+            f"--personas={','.join(wanted)}", check=False)
+
+        claimed = {p.address for p in BROWSER_PERSONAS if p.name in wanted}
+        seen = _requests_by_source(proxy_ledger)
+        state["browser"] = {
+            "personas": sorted(wanted),
+            "requests": sum(seen.get(a, 0) for a in claimed),
+            "exit_code": outcome.returncode,
+        }
+        # Same rule the tool runs and the attack runner are held to: a source
+        # that reached the server zero times must not be recorded as one that
+        # ran.
+        if not state["browser"]["requests"]:
+            tail = (outcome.stderr or outcome.stdout or "").strip().splitlines()
+            raise BuildError(
+                "the browser produced no requests at all. Recording it as "
+                "browser traffic would put sessions in the dataset that never "
+                "happened.\n  "
+                + (tail[-1][:200] if tail else "no output"))
+
     def drive_and_attack():
-        """Ordinary traffic, attack campaigns and tool runs, at the same
-        time."""
+        """Ordinary traffic, attack campaigns, tool runs and real browsers,
+        all at the same time."""
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             jobs = [pool.submit(drive), pool.submit(run_campaigns),
-                    pool.submit(run_tools)]
+                    pool.submit(run_tools), pool.submit(run_browsers)]
             for outcome in concurrent.futures.as_completed(jobs):
                 outcome.result()
 
@@ -671,7 +721,8 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
                 runner, "logforge/apache-shopfront-web:dev"),
             tool_runs=state.get("tool_runs", []),
             campaigns=state.get("campaign_outcomes", []),
-            remap=state.get("remap"), tells=state.get("tells", ()))
+            remap=state.get("remap"), tells=state.get("tells", ()),
+            browser=state.get("browser") or {})
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 
@@ -719,6 +770,12 @@ def main(argv=None):
               f"({clock['sessions_pushed']} pushed to avoid overlap)")
     else:
         print("  clock                    as captured, not remapped")
+    browser = manifest.get("browser") or {}
+    if browser.get("requests"):
+        print(f"  browser                  {browser['requests']} requests "
+              f"from {len(browser['personas'])} personas")
+    else:
+        print("  browser                  not run")
     fired = manifest["audit"]["fired"]
     print(f"  fake-log tells fired     {len(fired)}"
           + (f": {', '.join(fired)}" if fired else ""))

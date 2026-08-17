@@ -92,6 +92,32 @@ services:
       lab_res:
         ipv4_address: 203.0.113.4
 
+  # One-shot: a real Chromium, driven by Playwright.
+  #
+  # Its own address on this network is almost irrelevant. Every persona
+  # connects to its own tag-proxy port, and those ports are configured in
+  # **fixed** mode, so the address the proxy declares to Apache is the
+  # persona's rather than this container's. One container, five identities.
+  #
+  # Nothing is bind-mounted writable: the browser's only side effect should be
+  # the requests it makes.
+  browser:
+    build:
+      context: ./traffic
+      dockerfile: Dockerfile.browser
+    image: logforge/apache-shopfront-browser:dev
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/traffic/browser.py
+    volumes:
+      - ../..:/opt/logforge:ro
+    # Chromium maps a good deal of shared memory for the renderer and falls
+    # over on Docker's 64 MB default. --disable-dev-shm-usage covers the rest.
+    shm_size: 1gb
+    networks:
+      lab_res:
+        ipv4_address: 203.0.113.5
+
   # One-shot. Its address is reserved for nothing else, which is the whole
   # point: the malformed shapes it sends never reach mod_remoteip, so Apache
   # logs them against this address and the join can label them by it exactly.

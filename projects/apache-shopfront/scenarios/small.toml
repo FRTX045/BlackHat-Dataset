@@ -3,6 +3,12 @@
 kind = "weblog-truth"
 seed = 7
 
+# Top-level, and they must stay above the first [table] header or TOML makes
+# them keys of it. They were swallowed into [timeline] once and nothing
+# noticed, because at the time nothing read them.
+target_lines = 75000
+attack_share_target = 0.05
+
 [timeline]
 # The driver issues its whole plan as fast as the sockets allow, so the
 # captured log covers about three minutes at three hundred requests a second.
@@ -19,23 +25,40 @@ remap = true
 start = "2026-03-09T00:00:00+00:00"
 duration_seconds = 86400
 
-# What the finished small tier aims for. The Phase B driver issues ten fixed
-# requests and ignores these; they are here so the scenario contract is in
-# place before anything depends on it.
-target_lines = 50000
-attack_share_target = 0.05
-
 [traffic]
-# Virtual seconds of arrivals to plan, and session arrivals per virtual second.
-# These size the run; they are not the clock the finished log carries, which
-# is [timeline] above. At this rate a small run is about sixty thousand lines
-# and takes a few minutes.
-duration_seconds = 7200
-session_rate = 0.22
+# The window the driver plans its arrivals across, and the arrival rate in it.
+#
+# It must equal [timeline] duration_seconds above, and a test enforces that.
+# The driver plans a day of sessions and the remap places them on that same
+# day; a driver planning two hours while the remap spread them over one would
+# produce sessions that are individually real and collectively describe no
+# density at all.
+#
+# The rate is per *virtual* second at a diurnal multiplier of 1.0, so it is
+# small: 0.022 across a day is about 1,400 sessions, which at the measured
+# ~53 lines per session is roughly the 75,000-line target. Retuned from 0.22
+# when the planning window went from two hours to twenty-four, then from
+# 0.035 when a build at that rate came out at 120,630 lines -- the first
+# estimate divided total lines by the remap's episode count, which also
+# counts tool runs and campaign phases.
+duration_seconds = 86400
+session_rate = 0.022
 concurrency = 32
 
 # Malformed requests over raw sockets, from the reserved address.
 noise_requests = 120
+
+[browser]
+# Real Chromium, through Playwright. The only source here that does not decide
+# what to request: it is handed a URL and the log records what the browser
+# chose to ask for, in the order it chose, including the requests it declined
+# to make because the response was already in its cache.
+#
+# A small share of sessions on purpose. Chromium is expensive, and the value
+# is in having genuine browser-ordered cascades present at all rather than in
+# having most of the log come from them.
+enabled = true
+pace = 8.0
 
 [personas]
 # Attack share came out at 1.17% against a 2-8% target with scanner at 0.05.

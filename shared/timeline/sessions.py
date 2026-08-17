@@ -16,6 +16,14 @@ from shared.timeline.arrivals import arrival_times
 
 #: Personas whose arrivals do not follow the human diurnal curve.
 #:
+#: **Note on scope.** The apache-shopfront driver never reads a session's
+#: `started_at` -- it issues the plan as fast as it can and the timestamp
+#: remap decides when everything happened, keyed on the truth label rather
+#: than on the persona. So this shapes the plan and not the shipped log, and
+#: `shared/timeline/remap.py` carries the same rule where it does have effect.
+#: Kept because a plan whose automated sessions keep shop hours is wrong on
+#: its own terms, and a driver that paced to virtual time would need this.
+#:
 #: An uptime monitor polls on a timer and contributes as many lines at 04:00 as
 #: at 20:00. Search, SEO and AI crawlers work to their own schedules. And
 #: opportunistic scanning is, if anything, busier at night. Leaving these on

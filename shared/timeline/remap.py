@@ -140,24 +140,6 @@ def _rewrite(line, match, when):
     return line[:lo] + _stamp(when) + line[hi:]
 
 
-def _captured_seconds(matches):
-    """The timestamp on each captured line, in order.
-
-    A line that did not parse has no timestamp of its own, so it inherits the
-    one before it: it still happened at that point in the sequence, and giving
-    it a position rather than dropping it is what keeps the line count and the
-    truth file in step.
-    """
-    stamps, previous = [], None
-    for match in matches:
-        if match:
-            previous = datetime.strptime(match.group("ts"), _TS_FMT)
-        stamps.append(previous)
-    # Leading unparseable lines have nothing before them to inherit from.
-    first = next((s for s in stamps if s is not None), None)
-    return [s if s is not None else first for s in stamps]
-
-
 def _gap(rng, category):
     if category in _CASCADE:
         return rng.uniform(*_CASCADE[category])
@@ -187,12 +169,6 @@ def _episodes(records):
     return groups
 
 
-def _by_client(groups):
-    """Episodes gathered per address, each list still in capture order."""
-    clients = {}
-    for group in groups:
-        clients.setdefault(group[0], []).append(group)
-    return clients
 
 
 def remap_records(lines, records, *, start, duration_seconds, seed):

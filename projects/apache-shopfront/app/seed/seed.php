@@ -191,9 +191,16 @@ function product_image(int $id, string $path): void
 {
     // Dimensions and noise density both vary, so the size distribution is
     // genuinely spread rather than two clusters.
-    $wide = 220 + (($id * 41) % 1180);
+    //
+    // Retuned after measuring a shipped build: the median came out at 132 KB
+    // with a 752 KB tail, which is what a badly-built shop serves but put the
+    // median page weight above 1.6 MB of images alone. Real product imagery
+    // on a listing is 15-80 KB and a detail shot 80-250 KB, so the top of the
+    // range is pulled in and the middle brought down. The tail is kept --
+    // every real shop has a handful of images nobody optimised.
+    $wide = 200 + (($id * 41) % 820);
     $high = (int) ($wide * (0.62 + (($id * 11) % 40) / 100.0));
-    $quality = 45 + (($id * 7) % 45);
+    $quality = 38 + (($id * 7) % 42);
 
     $img = imagecreatetruecolor($wide, $high);
     $blocks = 8 + ($id % 40);
@@ -306,6 +313,12 @@ foreach ($ids as $id) {
 }
 icons($root);
 fonts($root);
+// Stylesheets and scripts, sized like a real shop's. The application used to
+// ship 1-2 KB of each, which Apache faithfully recorded as ~600 bytes on the
+// wire and made %b useless for the analysis it is most used for.
+require __DIR__ . '/assets.php';
+stylesheets($root);
+scripts($root);
 
 $pdo->exec('PRAGMA user_version = ' . SCHEMA_VERSION);
 

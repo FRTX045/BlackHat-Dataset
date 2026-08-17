@@ -126,10 +126,21 @@ class TestAssetsAreServedByApache(unittest.TestCase):
         self.assertIn("last-modified", headers)
 
     def test_a_range_request_returns_206_with_only_the_asked_for_bytes(self):
-        status, body = fetch(f"{BASE}/assets/css/site.css",
-                             headers=["Range: bytes=0-49"])
+        # Asserted on Apache's own byte counters, not on len() of the decoded
+        # body. The body is decoded as text with errors="replace" so binary
+        # assets are testable at all, and a 50-byte range that lands mid-way
+        # through a multi-byte character decodes to fewer than 50 characters.
+        # That is a property of the decoder, not of Range, and it made this
+        # test fail the moment a non-ASCII character entered the stylesheet.
+        status, _ = fetch(f"{BASE}/assets/css/site.css",
+                          headers=["Range: bytes=0-49"])
         self.assertEqual(status, "206")
-        self.assertEqual(len(body), 50)
+
+        headers = response_headers("lab_res", "203.0.113.90",
+                                   f"{BASE}/assets/css/site.css",
+                                   headers=["Range: bytes=0-49"])
+        self.assertEqual(headers["content-length"], "50")
+        self.assertTrue(headers["content-range"].startswith("bytes 0-49/"))
 
     def test_product_images_vary_in_size(self):
         # A log where every image is the same %b is a log where nobody can

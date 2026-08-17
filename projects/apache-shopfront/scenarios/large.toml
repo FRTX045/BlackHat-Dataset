@@ -1,0 +1,73 @@
+# A month of shop traffic, and the largest tier this project builds.
+#
+# Roughly a million lines across thirty days. What that buys over the medium
+# tier is not more of the same: a month contains things a week cannot show --
+# a crawler that appears partway through and stays, an attacker who comes back
+# eleven days after their first visit, four weekends rather than one, and
+# enough volume that a per-client baseline computed in week one can be tested
+# against week four.
+#
+# Sized from measurement, not from hope. The small tier produced 46 lines per
+# driver session once crawlers and monitors were raised to a realistic share,
+# and 0.013 arrivals a second across thirty days is about 21,500 sessions.
+#
+# This is a long build -- roughly an hour, most of it the driver -- and the
+# timestamp remap holds the whole log in memory to sort it. At this size that
+# is around 1 GB. Stated rather than hidden; there is no streaming version of
+# a global sort.
+
+kind = "weblog-truth"
+seed = 31
+
+target_lines = 1000000
+attack_share_target = 0.05
+
+[timeline]
+remap = true
+# The same Monday the other two tiers start on, so all three line up and a
+# consumer comparing them is comparing the same calendar.
+start = "2026-03-09T00:00:00+00:00"
+# Thirty days.
+duration_seconds = 2592000
+
+[traffic]
+# Must equal [timeline] duration_seconds.
+duration_seconds = 2592000
+session_rate = 0.013
+# Higher than medium's 40. Past about 56 the driver starts losing connections
+# rather than going faster, which shows up as 500s the application never
+# generated -- so this is the top of what the stack sustains, not a guess.
+concurrency = 48
+
+noise_requests = 1200
+
+[browser]
+# Real Chromium. Paced close to real reading time: this run has a month of
+# virtual span to fill and can afford the wall clock.
+enabled = true
+pace = 2.0
+
+[personas]
+# Identical to the other two tiers. The tiers differ in volume and span, not
+# in what the traffic is, so a detector trained on one can be checked against
+# another without the mix being a confounder.
+shopper = 0.20
+casual = 0.22
+returning = 0.08
+mobile = 0.10
+crawler = 0.18
+monitor = 0.10
+scanner = 0.12
+
+[attacks]
+campaigns = [
+    "patient_operator", "webshell_operator", "blind_injector",
+    "metadata_hunter", "credential_hunter", "fruitless_prober",
+]
+# Slowest of the three tiers: closest to the pace the playbooks actually
+# describe, so the phases spread furthest through the ordinary traffic.
+pace = 4.0
+
+# The full wordlist, as the medium tier uses. A month has room for it.
+tools = ["whatweb-root", "dirb-common", "gobuster-common", "nmap-http",
+         "sqlmap-search"]

@@ -15,6 +15,7 @@ the timestamp remap maps onto -- so the plan is a function of the scenario and
 the seed and of nothing else.
 """
 
+import collections
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -61,6 +62,61 @@ class TestThePlanIsAFunctionOfTheScenario(unittest.TestCase):
         counts = [count_at(datetime(2026, 3, 9, tzinfo=timezone.utc)
                            + timedelta(hours=h)) for h in (0, 6, 12, 18)]
         self.assertLess(max(counts) - min(counts), max(counts) * 0.25)
+
+
+class TestAutomatedTrafficDoesNotKeepHumanHours(unittest.TestCase):
+    """An uptime check does not sleep, and a scanner prefers that you do.
+
+    Found by measuring: with every persona drawn from the same diurnal curve,
+    the finished log had a peak-to-trough ratio of 26.8. Real e-commerce logs
+    sit around 5-10, and the reason is exactly this -- the small hours are not
+    empty, they are bot-dominated. A monitor polling a health URL every minute
+    contributes the same number of lines at 04:00 as at 20:00, and
+    opportunistic scanning is famously night-heavy.
+
+    Getting this wrong is not a cosmetic problem. A detector trained on a log
+    whose nights are genuinely empty learns that "any traffic at 4am is
+    suspicious", which is the opposite of what real night traffic looks like.
+    """
+
+    WEIGHTS = {"casual": 0.5, "monitor": 0.25, "crawler": 0.25}
+
+    def hours_for(self, persona, seed=11):
+        sessions = plan_sessions(
+            datetime(2026, 3, 9, tzinfo=timezone.utc), 86400, 0.05,
+            self.WEIGHTS, seed)
+        return [s.started_at.hour for s in sessions if s.persona == persona]
+
+    def _ratio(self, hours):
+        counts = collections.Counter(hours)
+        busiest = max(counts[h] for h in range(24))
+        quietest = min(counts[h] for h in range(24))
+        return busiest / max(quietest, 1)
+
+    def test_a_monitor_polls_around_the_clock(self):
+        hours = self.hours_for("monitor")
+        self.assertEqual(len(set(hours)), 24, "a monitor skipped whole hours")
+        self.assertLess(self._ratio(hours), 3.0,
+                        "monitor arrivals still follow the human curve")
+
+    def test_a_crawler_does_not_keep_shop_hours_either(self):
+        self.assertLess(self._ratio(self.hours_for("crawler")), 3.5)
+
+    def test_people_still_do(self):
+        # The counterpart: if this flattened too, the log would have no night
+        # at all and the diurnal model would be pointless.
+        self.assertGreater(self._ratio(self.hours_for("casual")), 3.0)
+
+    def test_the_night_is_disproportionately_automated(self):
+        sessions = plan_sessions(
+            datetime(2026, 3, 9, tzinfo=timezone.utc), 86400, 0.05,
+            self.WEIGHTS, 11)
+        night = [s for s in sessions if 1 <= s.started_at.hour < 5]
+        day = [s for s in sessions if 10 <= s.started_at.hour < 14]
+        auto = {"monitor", "crawler"}
+        night_share = sum(1 for s in night if s.persona in auto) / len(night)
+        day_share = sum(1 for s in day if s.persona in auto) / len(day)
+        self.assertGreater(night_share, day_share * 1.5)
 
 
 class TestTheShippedScenariosPlanAcrossTheirOwnWindow(unittest.TestCase):

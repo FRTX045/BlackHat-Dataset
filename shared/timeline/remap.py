@@ -85,6 +85,29 @@ _OTHER = (0.4, 4.0)
 #: smallest gap left between one session ending and the next beginning.
 _SESSION_GAP = 30.0
 
+#: Categories whose episodes are placed uniformly across the window rather
+#: than on the diurnal curve.
+#:
+#: An uptime monitor polls on a timer and contributes as many lines at 04:00 as
+#: at 20:00; search, SEO and AI crawlers work to their own schedules; and
+#: opportunistic scanning is if anything night-heavy. Placing them on the
+#: shoppers' curve makes the small hours genuinely empty, when in a real log
+#: they are bot-dominated -- and makes every attack in the dataset happen
+#: during business hours.
+#:
+#: Measured before this existed: the finished log's small hours were 6.4%
+#: automated against 20.7% in the evening peak, which is exactly backwards. A
+#: detector trained on that learns that any traffic at 4am is suspicious.
+#:
+#: **This module is the only thing that decides when anything in the shipped
+#: log happened.** The session planner was taught the same lesson first and it
+#: changed nothing, because the remap discards the planner's times entirely.
+ROUND_THE_CLOCK = frozenset({
+    "crawling",
+    "reconnaissance", "enumeration", "injection", "path_traversal",
+    "access_control", "credential_attack", "ssrf", "exploitation",
+})
+
 
 class RemapReport(NamedTuple):
     lines: int
@@ -117,24 +140,6 @@ def _rewrite(line, match, when):
     return line[:lo] + _stamp(when) + line[hi:]
 
 
-def _captured_seconds(matches):
-    """The timestamp on each captured line, in order.
-
-    A line that did not parse has no timestamp of its own, so it inherits the
-    one before it: it still happened at that point in the sequence, and giving
-    it a position rather than dropping it is what keeps the line count and the
-    truth file in step.
-    """
-    stamps, previous = [], None
-    for match in matches:
-        if match:
-            previous = datetime.strptime(match.group("ts"), _TS_FMT)
-        stamps.append(previous)
-    # Leading unparseable lines have nothing before them to inherit from.
-    first = next((s for s in stamps if s is not None), None)
-    return [s if s is not None else first for s in stamps]
-
-
 def _gap(rng, category):
     if category in _CASCADE:
         return rng.uniform(*_CASCADE[category])
@@ -164,12 +169,6 @@ def _episodes(records):
     return groups
 
 
-def _by_client(groups):
-    """Episodes gathered per address, each list still in capture order."""
-    clients = {}
-    for group in groups:
-        clients.setdefault(group[0], []).append(group)
-    return clients
 
 
 def remap_records(lines, records, *, start, duration_seconds, seed):
@@ -234,10 +233,24 @@ def remap_records(lines, records, *, start, duration_seconds, seed):
     # and buys the one ordering guarantee that matters: an operator's phases
     # come out in the order they were worked, and one address never has two
     # sessions open at once.
-    anchors = arrival_times_for_count(start, duration_seconds, len(groups),
-                                      seed)
+    # Automated episodes are placed uniformly, human ones on the curve. An
+    # episode counts as automated when most of its lines are, which is what
+    # makes a crawler's occasional non-crawling request harmless.
+    automated = [
+        sum(1 for i in indices
+            if records[i].get("category") in ROUND_THE_CLOCK) * 2 > len(indices)
+        for _, indices in groups]
+
     rng = random.Random(seed ^ 0x5F3759DF)
-    rng.shuffle(anchors)
+    human_anchors = arrival_times_for_count(
+        start, duration_seconds, sum(1 for a in automated if not a), seed)
+    rng.shuffle(human_anchors)
+    auto_anchors = [start + timedelta(seconds=rng.uniform(0, duration_seconds))
+                    for a in automated if a]
+
+    anchors, human_i, auto_i = [], iter(human_anchors), iter(auto_anchors)
+    for is_auto in automated:
+        anchors.append(next(auto_i) if is_auto else next(human_i))
 
     per_client = {}
     for position, (ip, _) in enumerate(groups):

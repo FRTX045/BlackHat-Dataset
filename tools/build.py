@@ -35,10 +35,13 @@ from shared.verify.stats import summarise  # noqa: E402
 from shared.verify.tells import audit, summary as audit_summary  # noqa: E402
 from tools import dataset_readme  # noqa: E402
 
-#: `large` is deliberately absent. It was excluded by decision and has never
-#: been exercised; accepting it would run for hours and produce something
-#: nobody had verified was buildable.
-TIERS = ("small", "medium")
+#: `large` was refused here for a long time on the grounds that it had never
+#: been exercised, and accepting a tier nobody had built would mean running
+#: for an hour to produce something unverified. It has now been built and
+#: verified, so that reasoning no longer applies and it is supported.
+#:
+#: Any tier added in future should be refused until the same is true of it.
+TIERS = ("small", "medium", "large")
 
 WEB_HEALTH_URL = "http://203.0.113.2/.lab-health"
 HEALTH_TIMEOUT = 90
@@ -59,9 +62,10 @@ class BuildError(RuntimeError):
 def validate_tier(tier):
     if tier not in TIERS:
         raise BuildError(
-            f"tier {tier!r} is not one of {', '.join(TIERS)}. The `large` tier "
-            f"is deliberately unsupported: it has never been run, and a build "
-            f"that took hours to fail would be worse than one that refuses.")
+            f"tier {tier!r} is not one of {', '.join(TIERS)}. A tier is "
+            f"supported once it has been built and verified at least once; "
+            f"a build that ran for an hour and then failed would be worse "
+            f"than one that refuses up front.")
 
 
 def load_scenario(path):

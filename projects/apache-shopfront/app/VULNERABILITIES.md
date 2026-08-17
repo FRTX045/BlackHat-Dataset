@@ -19,7 +19,22 @@ would notice.
 
 **The byte counts below were measured, not estimated.** They come from a real
 run against the container; the client address in a real dataset will differ, the
-sizes will not by much.
+sizes will not by much. Every figure here was re-measured after the application
+was resized to serve a realistic amount of markup, so they are the current ones
+rather than the ones a smaller application used to produce.
+
+> **Error pages are not compressed, and successful pages are.** `mod_deflate`
+> is enabled and applies to `text/html`, but Apache does not run the output
+> filter over an `ErrorDocument` response. So a `404` here is **7427** bytes on
+> the wire while the home page — which is larger uncompressed, 27,277 bytes —
+> goes out as 4028.
+>
+> That is real Apache behaviour with Debian's stock `deflate.conf`, not
+> something arranged for effect, and it has a consequence worth knowing before
+> reading any table below: **on this server a failed request is often bigger in
+> `%b` than a successful one.** Any rule of the form "large response means data
+> came back" is wrong here, and it is wrong on a great many real servers for
+> exactly this reason.
 
 ---
 
@@ -42,12 +57,19 @@ the username lands in the column the template renders as a product name.
 
 | Outcome | Status | `%b` |
 |---|---|---|
-| Successful `UNION` extraction | `200` | **9131** |
-| Ordinary search (`q=oak`) | `200` | 4985 |
+| Successful `UNION` extraction | `200` | **3808** |
+| Ordinary search (`q=oak`) | `200` | 3118 |
 
-A successful extraction is roughly **twice the size** of a normal search page,
-because it returns the full product list plus the injected rows. The payload is
-also plainly visible in `%r`.
+A successful extraction is about **22% larger** than an ordinary search page,
+because it returns the injected rows on top of the matches. That is a much
+narrower margin than it used to be, and the reason is worth knowing: the page
+now carries a realistic amount of surrounding markup — navigation, footer,
+structured data — so the injected rows are a smaller fraction of the whole.
+
+**This is the realistic case, and it is harder.** On a page that was mostly
+results, extraction doubled the byte count and stood out. On a page built like
+a real storefront it does not, and response size alone is a weak signal. The
+payload is still plainly visible in `%r`, which is what actually catches it.
 
 **Boolean-blind:** `zzqq' OR 1=1--` and `zzqq' OR 1=2--` return different page
 sizes. The term must be one that matches nothing on its own — a bare quote
@@ -67,7 +89,7 @@ Note this payload materialises a 400MB hex string, so the playbooks use it
 sparingly.
 
 **Hardened counterpart:** `/api/autocomplete` takes the same payload through a
-prepared statement and answers `200` with `59` bytes of empty JSON.
+prepared statement and answers `200` with `41` bytes of empty JSON.
 
 ---
 
@@ -85,9 +107,9 @@ somebody else.
 
 | Outcome | Status | `%b` |
 |---|---|---|
-| Someone else's order | `200` | 2420 |
-| Your own order | `200` | 2336 |
-| No such order | `404` | 2113 |
+| Someone else's order | `200` | 2427 |
+| Your own order | `200` | 2397 |
+| No such order | `404` | 7427 |
 
 > **A successful IDOR is not distinguishable from a legitimate order view.**
 > Same status, same order of magnitude in `%b`, same shape of URL. What gives it
@@ -121,12 +143,12 @@ saves counting.
 
 | Outcome | Status | `%b` |
 |---|---|---|
-| `/etc/passwd` read | `200` | **839** |
-| Legitimate document | `200` | 286 |
-| Traversal that resolved to nothing | `404` | 2113 |
+| `/etc/passwd` read | `200` | **327** |
+| Legitimate document | `200` | 163 |
+| Traversal that resolved to nothing | `404` | 7427 |
 
 A `200` on a `/download` request whose `file` parameter contains `../` is
-unambiguous, and the `839` is a recognisable fingerprint for `/etc/passwd` on
+unambiguous, and the `327` is a recognisable fingerprint for `/etc/passwd` on
 this image. A failed traversal falls to the `404` page, which is *larger* than
 the successful read — worth knowing, because size alone points the wrong way.
 
@@ -149,8 +171,8 @@ GET /admin/import-image?url=http://203.0.113.2/robots.txt
 
 | Outcome | Status | `%b` |
 |---|---|---|
-| Target reachable | `200` | 2248 |
-| Target unroutable (cloud metadata) | `504` | 2233 |
+| Target reachable | `200` | 2341 |
+| Target unroutable (cloud metadata) | `504` | 7559 |
 
 > **A successful SSRF against a lab host leaves a second line.** When the target
 > is inside the lab, Apache logs the fetch it made of itself:
@@ -216,10 +238,10 @@ role check.
 
 | Outcome | Status | `%b` |
 |---|---|---|
-| Injected command ran | `200` | 2195 |
-| Ordinary host check | `200` | 2161 |
+| Injected command ran | `200` | 2319 |
+| Ordinary host check | `200` | 2308 |
 
-> **34 bytes apart.** The response size is effectively useless for detection
+> **11 bytes apart.** The response size is effectively useless for detection
 > here — the injected `id` output is a few dozen characters inside a page that
 > is otherwise identical. Only the payload in `%r` reveals it.
 
@@ -236,8 +258,8 @@ rather than looked up in a table of values. Not behind the admin role check.
 
 | Outcome | Status | `%b` |
 |---|---|---|
-| Expression evaluated (`49`) | `200` | 2165 |
-| Ordinary template | `200` | 2166 |
+| Expression evaluated (`49`) | `200` | 2306 |
+| Ordinary template | `200` | 2299 |
 
 > **One byte apart, and the exploit is the *smaller* one.** There is no
 > size-based signal at all. This is the least detectable weakness in the
@@ -249,7 +271,7 @@ rather than looked up in a table of values. Not behind the admin role check.
 
 **Where:** `app/search.php` echoes the search term unescaped in one place.
 
-**Exploit:** `GET /search?q=<script>alert(1)</script>` → `200`, 2100 bytes.
+**Exploit:** `GET /search?q=<script>alert(1)</script>` → `200`, 2289 bytes.
 
 > **Barely visible in an access log, and stored XSS is invisible.** The
 > reflected payload appears in `%r` and that is all. Retrieval of a stored
@@ -270,7 +292,7 @@ give attack traffic somewhere to fail:
 
 | Control | Behaviour |
 |---|---|
-| `/api/autocomplete`, `/api/stock`, `/api/cart` | Prepared statements. The `UNION` payload returns `200` with 59 bytes of empty JSON. |
+| `/api/autocomplete`, `/api/stock`, `/api/cart` | Prepared statements. The `UNION` payload returns `200` with 41 bytes of empty JSON. |
 | `/account/addresses` | Scoped to the session user — same lookup shape as the IDOR, still correct. |
 | `/admin/users`, `/admin/orders` | Role check enforced. An ordinary customer gets `403`, 371 bytes. |
 | `/login` | Lockout after five failures, answering `429`. A brute-force run is visibly rate-limited in the status column, not merely unsuccessful. |

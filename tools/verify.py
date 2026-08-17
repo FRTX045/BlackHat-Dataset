@@ -13,6 +13,13 @@ per line, addresses matching, categories in the vocabulary, episode groups
 contiguous per client, and every line parsing as Apache Combined. Any failure
 here means the labels cannot be trusted and the run is not shippable.
 
+The files must also agree **with each other**: the shipped log a permutation of
+the capture with only its timestamps changed, the capture the tagged log minus
+its request-id prefix, both truth files describing their own log and carrying
+the same labels, and the committed sample a genuine contiguous slice. Each of
+those files is individually consistent even when the remap has dropped a line,
+so nothing else would catch it.
+
 **Provenance.** The project README and the dataset README must both carry a
 complete "How this dataset was produced" section, and every tool named in the
 manifest must appear in its attack-tool table. A dataset that cannot say how it
@@ -39,6 +46,7 @@ from shared.truth.reader import TruthFormatError, read_truth  # noqa: E402
 from shared.truth.validate import validate_records  # noqa: E402
 from shared.verify.agreement import compare_logs  # noqa: E402
 from shared.verify.combined import parse_line  # noqa: E402
+from shared.verify.crossfile import check_dataset  # noqa: E402
 from shared.verify.provenance import check_provenance  # noqa: E402
 from shared.verify.stats import summarise  # noqa: E402
 from shared.verify.tells import audit  # noqa: E402
@@ -206,6 +214,10 @@ def verify(dataset, repo=REPO, project=None):
     project = project or manifest.get("project")
 
     problems, records = integrity(lines, truth_records)
+    # The relationships between the files, which `integrity` cannot see: each
+    # file there is individually consistent even when the remap has dropped a
+    # line or the sample is not a slice of what it names.
+    problems.extend(check_dataset(dataset))
     problems.extend(provenance(dataset, manifest, repo, project))
 
     stats = report(dataset, records, truth_records, manifest)

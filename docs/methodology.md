@@ -32,6 +32,27 @@ So the approach here is to make those things happen rather than imitate them:
 
 Everything else in this document exists to make step 5 trustworthy.
 
+### The limit of the principle
+
+Collecting rather than generating guarantees the log is **honest**. It does not
+guarantee the log is **representative**, and the difference caught this project
+out.
+
+For a long time the application served a 1.4 KB home page, a 600-byte
+stylesheet and a 574-byte "bundle". Apache recorded those faithfully, so every
+byte count in the dataset was true. It was also useless: `%b` is where real
+analysis starts for exfiltration volume, response-size anomalies and cache
+work, and against a real origin those figures are wrong by one to three orders
+of magnitude. Every aggregate check passed. It was found by reading
+twenty-five lines of a shipped log by eye.
+
+So the rule has a second half. Collect everything — and make sure the thing
+being collected from is the size and shape of the real thing. The application
+is not a placeholder for a shop; where its output reaches the log, it has to
+*be* a shop. That is why the stylesheets, scripts, markup and API payloads are
+sized against published figures for real origins, and why `tools/audit.py`
+now measures response size per content kind on every build.
+
 ---
 
 ## The labelling problem, and how it is solved
@@ -220,11 +241,34 @@ every byte except the bracketed timestamp field.
 
 | | |
 |---|---|
-| Session start | Redrawn from the same diurnal and weekly curves the driver plans against, one draw per session, handed out in a **shuffled** order |
+| Session start, human traffic | Redrawn from the same diurnal and weekly curves the driver plans against, one draw per session, handed out in a **shuffled** order |
+| Session start, automated traffic | Redrawn **uniformly** across the window |
 | Order within a session | As captured |
 | Spacing within a session | Reconstructed from what each request was |
 | One address's sessions | Kept in capture order, and never overlapping |
 | Everything else on the line | Byte for byte as Apache wrote it |
+
+**Why automated traffic gets its own treatment.** An uptime monitor polls on a
+timer and contributes as many lines at 04:00 as at 20:00. Search, SEO and AI
+crawlers work to their own schedules. Opportunistic scanning is, if anything,
+night-heavy. Drawing all of them from the shoppers' curve gave a finished log a
+peak-to-trough ratio of 26.8, where real e-commerce logs sit nearer 5–10 — and
+the reason they do is precisely that the small hours are not empty but
+bot-dominated.
+
+Measured before the rule existed: the 01:00–05:00 window was 6.4% automated
+and the 18:00–21:00 peak 20.7%, which is exactly backwards. After: **49.9% at
+night against 12.0% at peak**, and a peak-to-trough ratio of 6.9.
+
+This is not cosmetic. A detector trained on a log whose nights are genuinely
+empty learns that any traffic at 4am is suspicious, which is the opposite of
+what real night traffic looks like.
+
+The rule is keyed on the **truth label**, not on the persona, and it lives in
+`remap.py` rather than in the session planner. That distinction was learned the
+hard way: the planner was taught the same rule first and it changed nothing at
+all, because the driver never reads a planned session's start time and the
+remap discards them.
 
 **Why the draws are shuffled.** Handing them out in capture order stamps the
 harness's own schedule onto the clock. The campaigns start with the driver and

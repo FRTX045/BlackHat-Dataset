@@ -9,9 +9,28 @@ Stdlib only, by project rule.
 """
 
 import random
+from datetime import timedelta
 from typing import NamedTuple
 
 from shared.timeline.arrivals import arrival_times
+
+#: Personas whose arrivals do not follow the human diurnal curve.
+#:
+#: **Note on scope.** The apache-shopfront driver never reads a session's
+#: `started_at` -- it issues the plan as fast as it can and the timestamp
+#: remap decides when everything happened, keyed on the truth label rather
+#: than on the persona. So this shapes the plan and not the shipped log, and
+#: `shared/timeline/remap.py` carries the same rule where it does have effect.
+#: Kept because a plan whose automated sessions keep shop hours is wrong on
+#: its own terms, and a driver that paced to virtual time would need this.
+#:
+#: An uptime monitor polls on a timer and contributes as many lines at 04:00 as
+#: at 20:00. Search, SEO and AI crawlers work to their own schedules. And
+#: opportunistic scanning is, if anything, busier at night. Leaving these on
+#: the human curve gave a finished log a peak-to-trough ratio of 26.8 against
+#: a real-world 5-10, because the small hours came out genuinely empty rather
+#: than bot-dominated.
+ROUND_THE_CLOCK = frozenset({"monitor", "crawler", "scanner"})
 
 #: Pareto exponent for session length. Chosen so the median visit is a couple
 #: of pages and the long tail reaches the dozens: measured over 20,000 draws
@@ -73,8 +92,31 @@ def plan_sessions(start, duration_seconds, base_rate, persona_weights, seed):
     # differ in one dimension should differ only in that dimension.
     rng = random.Random(seed ^ 0x5F5E1)
 
-    return [
-        Session(index=index, persona=_pick(rng, persona_weights),
-                started_at=when, request_count=session_length(rng))
-        for index, when in enumerate(starts)
-    ]
+    # A third stream, for re-placing the automated personas. Separate again so
+    # that adding one does not move any human session.
+    flat = random.Random(seed ^ 0xA5A5A5)
+
+    sessions = []
+    for index, when in enumerate(starts):
+        persona = _pick(rng, persona_weights)
+        if persona in ROUND_THE_CLOCK:
+            # Redrawn uniformly across the window rather than kept on the
+            # diurnal curve. An uptime check does not sleep, a crawler works
+            # to its own schedule, and opportunistic scanning is if anything
+            # night-heavy.
+            #
+            # Measured before this existed: every persona on the human curve
+            # gave the finished log a peak-to-trough ratio of 26.8. Real
+            # e-commerce logs sit nearer 5-10, and the reason is precisely
+            # that the small hours are not empty -- they are bot-dominated. A
+            # detector trained on genuinely empty nights learns that any 4am
+            # traffic is suspicious, which is the opposite of the truth.
+            when = start + timedelta(
+                seconds=flat.uniform(0, duration_seconds))
+        sessions.append(Session(index=index, persona=persona, started_at=when,
+                                request_count=session_length(rng)))
+
+    # Back into time order: the redraw moved some of them, and every consumer
+    # of this plan expects it ordered by start.
+    sessions.sort(key=lambda s: s.started_at)
+    return [s._replace(index=index) for index, s in enumerate(sessions)]

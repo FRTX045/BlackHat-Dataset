@@ -39,10 +39,22 @@ pip install. Every third-party dependency lives inside a container image.
 
 ## Scale tiers
 
-| Tier | Lines | Approx. size | Span of the log | Build time | Purpose |
-|---|---|---|---|---|---|
-| `small` | ~70,000 | ~17 MB | 1 day | ~8 min | Fast iteration |
-| `medium` | ~250,000 | ~60 MB | 7 days | ~20 min | The main dataset |
+| Tier | Lines | Approx. size | Span of the log | Build time | Peak RSS | Purpose |
+|---|---|---|---|---|---|---|
+| `small` | ~66,000 | ~16 MB | 1 day | ~3.5 min | 150 MB | Fast iteration |
+| `medium` | ~240,000 | ~60 MB | 7 days | ~12 min | 500 MB | The main dataset |
+| `large` | ~1,000,000 | ~250 MB | 30 days | ~50 min | ~2 GB | A month of history |
+
+Build times and memory are measured, not estimated. The timestamp remap sorts
+the whole log and therefore holds it in memory — about 2 KB per line — so the
+large tier wants a machine with a few gigabytes free. There is no streaming
+version of a global sort, and claiming one would be worse than the cost.
+
+Larger tiers are not the small one repeated. A month contains things a day
+cannot show: a crawler that appears partway through and stays, an attacker who
+returns eleven days after their first visit, four weekends rather than none,
+and enough volume that a per-client baseline built in week one can be tested
+against week four.
 
 The **span of the log is not the duration of the build**. The driver issues its
 whole plan as fast as the sockets allow, so a run that takes eight minutes
@@ -54,10 +66,6 @@ project that is computed rather than collected;
 [docs/methodology.md](docs/methodology.md) says exactly what is done and what
 it costs.
 
-Larger tiers are not the small one repeated. A multi-week log contains things a
-four-hour log cannot: weekend dips, a traffic spike, a deployment that changes
-which paths exist, a bot that appears halfway through, an attacker who returns a
-week after their first visit.
 
 ## What ships
 

@@ -5,14 +5,14 @@
   "tier": "small",
   "scenario_file": "projects/apache-shopfront/scenarios/small.toml",
   "seed": 7,
-  "commit": "718fa5607d445909946c6a9a8e55c2ea19e90576",
+  "commit": "695e4e1f3c462fcd687f3f4828be7307df2ffb75",
   "commit_is_clean": false,
-  "started_at": "2026-08-17T02:06:46.207018+00:00",
-  "finished_at": "2026-08-17T02:10:32.640397+00:00",
-  "wall_clock_seconds": 226.433,
-  "base_image_digest": "logforge/apache-shopfront-web@sha256:a74fc18a90b7fc301a4e9f84582793fd6ec1b2f36385bce6f74b6958a199a4ba",
-  "lines": 78112,
-  "unmatched_request_ids": 168,
+  "started_at": "2026-08-17T05:08:14.620498+00:00",
+  "finished_at": "2026-08-17T05:11:27.292124+00:00",
+  "wall_clock_seconds": 192.672,
+  "base_image_digest": "logforge/apache-shopfront-web@sha256:ea2ba39985c176a21860fe7c299a6d00e21b2df294f70fd1846bc0f2ad126b2e",
+  "lines": 65678,
+  "unmatched_request_ids": 169,
   "unparsed_log_lines": 0,
   "address_fallback_lines": 94,
   "timestamps": {
@@ -20,15 +20,15 @@
     "capture_file": "access.raw.log",
     "capture_truth_file": "truth.raw.jsonl",
     "start": "2026-03-09T00:00:48.713548+00:00",
-    "end": "2026-03-09T23:54:51.937049+00:00",
-    "span_seconds": 86043.224,
-    "captured_span_seconds": 211.0,
-    "sessions": 2524,
-    "sessions_pushed": 32,
+    "end": "2026-03-10T00:09:04.653535+00:00",
+    "span_seconds": 86895.94,
+    "captured_span_seconds": 178.0,
+    "sessions": 2382,
+    "sessions_pushed": 30,
     "description": "Timestamps were rewritten: session starts redrawn from the diurnal and weekly curves, spacing within a session reconstructed from what each request was. Every other byte of every line, and the order of requests within a session, is as captured. access.raw.log is the log Apache wrote."
   },
   "audit": {
-    "tells_checked": 8,
+    "tells_checked": 9,
     "tells_fired": 1,
     "inconclusive": 0,
     "fired": [
@@ -36,8 +36,26 @@
     ],
     "findings": [
       {
+        "name": "toy_asset_sizes",
+        "measured": {
+          "css": 4991,
+          "js": 8428,
+          "html": 4633,
+          "image": 58891
+        },
+        "threshold": {
+          "css": 3000,
+          "js": 4000,
+          "html": 2500,
+          "image": 3000
+        },
+        "suspicious": false,
+        "inconclusive": false,
+        "explanation": "Median response size per content kind, in bytes as sent. Below the floor for a kind, the application serving it is a demo rather than a shop, and %b cannot be used for the analysis it is most often used for. All above the floor."
+      },
+      {
         "name": "round_response_sizes",
-        "measured": 0.0402,
+        "measured": 0.0401,
         "threshold": 0.25,
         "suspicious": false,
         "inconclusive": false,
@@ -45,7 +63,7 @@
       },
       {
         "name": "implausible_rate",
-        "measured": 0.908,
+        "measured": 0.756,
         "threshold": 50.0,
         "suspicious": false,
         "inconclusive": false,
@@ -53,7 +71,7 @@
       },
       {
         "name": "agent_monoculture",
-        "measured": 0.2316,
+        "measured": 0.2541,
         "threshold": 0.55,
         "suspicious": false,
         "inconclusive": false,
@@ -61,7 +79,7 @@
       },
       {
         "name": "uniform_client_volumes",
-        "measured": 3.2397,
+        "measured": 2.6926,
         "threshold": 1.0,
         "suspicious": false,
         "inconclusive": false,
@@ -105,7 +123,7 @@
       },
       {
         "name": "sequential_client_addresses",
-        "measured": 0.0921,
+        "measured": 0.0949,
         "threshold": 0.75,
         "suspicious": false,
         "inconclusive": false,
@@ -121,16 +139,16 @@
       "mobile-android",
       "tablet"
     ],
-    "requests": 622,
+    "requests": 613,
     "exit_code": 0
   },
   "derived_vs_apache_combined": {
     "compared_file": "access.raw.log",
-    "agreed": 78107,
-    "derived_lines": 78112,
-    "apache_lines": 78112,
-    "first_divergence": 1269,
-    "summary": "78107/78112 lines agreed; Apache's own log has 78112 lines; first divergence at line 1269"
+    "agreed": 65668,
+    "derived_lines": 65678,
+    "apache_lines": 65678,
+    "first_divergence": 1400,
+    "summary": "65668/65678 lines agreed; Apache's own log has 65678 lines; first divergence at line 1400"
   },
   "truth_validation_errors": [],
   "tool_runs": [
@@ -142,9 +160,9 @@
       "source_ip": "192.0.2.32",
       "network": "lab_dc",
       "target": "the site root, fingerprinting",
-      "started_at": "2026-08-17T02:06:54.876654+00:00",
-      "finished_at": "2026-08-17T02:07:03.779999+00:00",
-      "seconds": 8.903,
+      "started_at": "2026-08-17T05:08:23.284025+00:00",
+      "finished_at": "2026-08-17T05:08:31.636968+00:00",
+      "seconds": 8.353,
       "exit_code": 0,
       "timed_out": false,
       "requests": 6
@@ -157,9 +175,9 @@
       "source_ip": "198.51.100.35",
       "network": "lab_cloud",
       "target": "/ with dirb's small wordlist",
-      "started_at": "2026-08-17T02:06:54.877948+00:00",
-      "finished_at": "2026-08-17T02:07:16.095579+00:00",
-      "seconds": 21.218,
+      "started_at": "2026-08-17T05:08:23.284827+00:00",
+      "finished_at": "2026-08-17T05:08:44.443138+00:00",
+      "seconds": 21.158,
       "exit_code": 0,
       "timed_out": false,
       "requests": 961
@@ -172,9 +190,9 @@
       "source_ip": "198.51.100.34",
       "network": "lab_cloud",
       "target": "/ with dirb's small wordlist, at four threads",
-      "started_at": "2026-08-17T02:06:54.879941+00:00",
-      "finished_at": "2026-08-17T02:07:04.847893+00:00",
-      "seconds": 9.968,
+      "started_at": "2026-08-17T05:08:23.285509+00:00",
+      "finished_at": "2026-08-17T05:08:33.221403+00:00",
+      "seconds": 9.936,
       "exit_code": 0,
       "timed_out": false,
       "requests": 961
@@ -187,9 +205,9 @@
       "source_ip": "198.51.100.32",
       "network": "lab_cloud",
       "target": "the proxy's HTTP port with http-* NSE scripts",
-      "started_at": "2026-08-17T02:06:54.883990+00:00",
-      "finished_at": "2026-08-17T02:07:22.293080+00:00",
-      "seconds": 27.409,
+      "started_at": "2026-08-17T05:08:23.287158+00:00",
+      "finished_at": "2026-08-17T05:08:51.262050+00:00",
+      "seconds": 27.975,
       "exit_code": 0,
       "timed_out": false,
       "requests": 10
@@ -202,12 +220,12 @@
       "source_ip": "192.0.2.31",
       "network": "lab_dc",
       "target": "the planted SQL injection on /search",
-      "started_at": "2026-08-17T02:06:54.887993+00:00",
-      "finished_at": "2026-08-17T02:07:00.864412+00:00",
-      "seconds": 5.976,
+      "started_at": "2026-08-17T05:08:23.301382+00:00",
+      "finished_at": "2026-08-17T05:08:29.711573+00:00",
+      "seconds": 6.41,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 50
+      "requests": 45
     }
   ],
   "campaigns": [

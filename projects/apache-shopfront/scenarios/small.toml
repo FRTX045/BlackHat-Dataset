@@ -66,13 +66,23 @@ pace = 8.0
 # access log is dominated by opportunistic scanning, not by targeted
 # intrusions, and a scanner session is a dozen requests with no asset cascade
 # behind it while a shopper session is fifty lines of which forty are images.
-shopper = 0.26
-casual = 0.29
-returning = 0.09
-mobile = 0.13
-crawler = 0.07
-monitor = 0.03
-scanner = 0.13
+# Retuned after comparing the finished log against published characteristics
+# of real public web logs. Automated traffic came out at 5.2% of lines against
+# a real-world 20-50%: crawler and monitor were 10% of *sessions*, and their
+# sessions are short, so they were a much smaller share of *lines*.
+#
+# A real shop of this size is crawled continuously -- the search engines, the
+# SEO crawlers, the AI crawlers, and at least one uptime monitor hitting a
+# health URL every minute, which alone is 1,440 lines a day. Raising these two
+# also brings the Referer share down, because none of them sends one, and that
+# was sitting at 90% against a real-world 40-70%.
+shopper = 0.20
+casual = 0.22
+returning = 0.08
+mobile = 0.10
+crawler = 0.18
+monitor = 0.10
+scanner = 0.12
 
 [attacks]
 # Every campaign runs, concurrently with the ordinary traffic. Two of the six

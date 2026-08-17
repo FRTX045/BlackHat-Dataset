@@ -98,11 +98,14 @@ def in_container(script, source_ip="203.0.113.90", network="lab_res"):
     return result.stdout
 
 
-def response_headers(network, source_ip, url):
+def response_headers(network, source_ip, url, headers=()):
     """Return the response headers of one request, lowercased by name."""
-    result = docker(
-        "run", "--rm", "--network", network, "--ip", source_ip,
-        "--entrypoint", "curl", IMAGE, "-s", "-o", "/dev/null", "-D", "-", url)
+    argv = ["run", "--rm", "--network", network, "--ip", source_ip,
+            "--entrypoint", "curl", IMAGE, "-s", "-o", "/dev/null", "-D", "-"]
+    for header in headers:
+        argv += ["-H", header]
+    argv.append(url)
+    result = docker(*argv)
     if result.returncode != 0:
         raise RuntimeError(f"request from {source_ip} failed: {result.stderr}")
     headers = {}

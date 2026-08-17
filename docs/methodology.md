@@ -145,10 +145,22 @@ one blanket category to a whole run.
 Instead, every tool run is pointed at a small proxy that sits in front of Apache.
 It preserves the tool's real network address as `X-Forwarded-For` and stamps a
 unique `X-Request-Id` on each request, recording the request line against it.
-Tool traffic therefore gets the same per-line exactness as everything else — and
-a single `nikto` run splits correctly into `reconnaissance` for its fingerprint
-probes and `injection` for its payload attempts, rather than both being flattened
-into one label.
+Tool traffic therefore gets the same per-line exactness as everything else.
+
+**Each tool arrives on its own proxy port**, and the port carries that tool's
+actor. That is what makes the label right: a tool run's category is decided
+from the actor rather than from the individual requests, because no single
+request in a wordlist walk reveals that the activity *is* a wordlist walk.
+
+An earlier version of this document claimed the opposite — that one tool run
+would split per request into `reconnaissance` for its fingerprint probes and
+`injection` for its payloads. It would not have, and the attempt to do it that
+way is what produced the worst labelling bug this project has had: every tool
+shared one port under the generic actor `tool`, the per-tool rules never
+matched, and 98% of 9,293 tool requests were labelled `browsing` in two
+shipped datasets. Per-request labelling is simply unreliable for tools —
+sqlmap's boolean payloads carry no `UNION` and no `or 1=1`, so a payload regex
+catches about one request in forty-five.
 
 ### Client addresses
 

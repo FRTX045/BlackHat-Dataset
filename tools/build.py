@@ -137,7 +137,7 @@ class Stack:
     def once(self, service, *args, check=True):
         """Run a one-shot service to completion, and return what it did.
 
-        `check=False` for the tools: nikto exits non-zero having found
+        `check=False` for the tools: a scanner exits non-zero having found
         nothing, sqlmap exits non-zero having been cut off, and neither is a
         build failure. The exit code goes in the manifest instead.
         """
@@ -171,8 +171,8 @@ def _requests_by_source(ledger):
     """How many requests the tag proxy recorded from each address.
 
     Read from the proxy's own ledger rather than from the tools' exit codes:
-    nikto exits 0 having found nothing and 0 having reached nothing, and the
-    difference is the whole question.
+    a scanner exits 0 having found nothing and 0 having reached nothing, and
+    the difference is the whole question.
     """
     counts = {}
     if not Path(ledger).exists():
@@ -749,8 +749,8 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project")
-    parser.add_argument("tier", choices=[*TIERS, "large"],
-                        help="small or medium; large is unsupported")
+    parser.add_argument("tier", choices=TIERS,
+                        help=f"one of {', '.join(TIERS)}")
     args = parser.parse_args(argv)
 
     try:

@@ -19,8 +19,8 @@ done
 # schema change would otherwise survive into the next run and make the
 # application 404 on tables the code believes exist.
 php /var/www/html/seed/seed.php
-chown -R www-data:www-data /var/www/html/data /var/www/html/assets/img \
-                           /var/www/html/assets/fonts /var/www/html/uploads
+chown -R www-data:www-data /var/www/html/data /var/www/html/assets \
+                           /var/www/html/uploads
 
 # Start every run from empty logs. A build that inherited the previous run's
 # lines would ship a log whose truth file describes a different run, and

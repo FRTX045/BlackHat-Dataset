@@ -282,7 +282,8 @@ function fonts(string $root): void
 $root = getenv('LOGFORGE_APP_ROOT') ?: '/var/www/html';
 $db_path = getenv('LOGFORGE_DB') ?: "$root/data/catalogue.sqlite";
 
-foreach (["$root/data", "$root/assets/img/p", "$root/assets/fonts", "$root/uploads"] as $dir) {
+foreach (["$root/data", "$root/assets/img/p", "$root/assets/fonts",
+          "$root/assets/css", "$root/assets/js", "$root/uploads"] as $dir) {
     if (!is_dir($dir)) {
         mkdir($dir, 0o775, true);
     }
@@ -290,11 +291,50 @@ foreach (["$root/data", "$root/assets/img/p", "$root/assets/fonts", "$root/uploa
 
 mt_srand(seed_value());
 
+/*
+ * Static assets first, and outside the schema guard.
+ *
+ * These are generated rather than committed -- the repository carries the
+ * recipe -- so a fresh clone starts with no stylesheets, no scripts, no
+ * product images and no fonts. Every one of them is cheap to skip when it is
+ * already there, and expensive to be missing: Apache answers a request for an
+ * absent stylesheet with the 404 page, which is a 7 KB HTML document with no
+ * ETag, and the dataset fills up with 404s for assets that should exist.
+ *
+ * This used to sit *after* the guard below, so a container whose database was
+ * already at the current schema would exit before regenerating anything. That
+ * is exactly what a fresh checkout looks like once the assets are gitignored,
+ * and it turned three container-backed tests red in a way that pointed at
+ * Apache rather than at the seeder.
+ */
+require __DIR__ . '/assets.php';
+if (!file_exists("$root/assets/css/site.css")) {
+    stylesheets($root);
+}
+if (!file_exists("$root/assets/js/app.js")) {
+    scripts($root);
+}
+if (!file_exists("$root/assets/fonts/inter-400.woff2")) {
+    fonts($root);
+}
+if (!file_exists("$root/favicon.ico")) {
+    icons($root);
+}
+
 $pdo = new PDO('sqlite:' . $db_path);
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 if ((int) $pdo->query('PRAGMA user_version')->fetchColumn() === SCHEMA_VERSION
     && !in_array('--force', $argv, true)) {
+    // The product images depend on the catalogue, so they are checked here
+    // rather than above -- but they still have to be checked, for the same
+    // reason.
+    foreach ($pdo->query('SELECT id FROM products')->fetchAll() as $row) {
+        $path = "$root/assets/img/p/" . (int) $row['id'] . ".jpg";
+        if (!file_exists($path)) {
+            product_image((int) $row['id'], $path);
+        }
+    }
     echo "catalogue already at schema " . SCHEMA_VERSION . "\n";
     exit(0);
 }
@@ -311,12 +351,10 @@ foreach ($ids as $id) {
         product_image($id, $path);
     }
 }
+// A --force run regenerates the static assets too, so a change to their
+// generator takes effect without anybody having to delete files by hand.
 icons($root);
 fonts($root);
-// Stylesheets and scripts, sized like a real shop's. The application used to
-// ship 1-2 KB of each, which Apache faithfully recorded as ~600 bytes on the
-// wire and made %b useless for the analysis it is most used for.
-require __DIR__ . '/assets.php';
 stylesheets($root);
 scripts($root);
 

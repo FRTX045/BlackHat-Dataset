@@ -31,7 +31,11 @@ duration_seconds = 604800
 # about 4,800 sessions, roughly the 250,000-line target at the measured ~53
 # lines per session.
 duration_seconds = 604800
-session_rate = 0.0125
+# 0.0135 across seven days is about 5,200 sessions, roughly the 250,000-line
+# target at the measured 46 lines per session. That figure fell from 53 when
+# crawlers and monitors were raised to a realistic share, because their
+# sessions are short.
+session_rate = 0.0135
 # Higher than small: the run is longer, and the point of the medium tier is
 # volume. Above about 48 the driver starts losing connections rather than
 # going faster, which shows up as 500s the application never generated.

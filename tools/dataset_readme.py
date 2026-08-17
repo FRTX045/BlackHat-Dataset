@@ -304,6 +304,15 @@ Written as they are, not as one would like them.
   impossible.
 - **Webfonts are not real fonts** — a valid `wOF2` signature and deterministic
   padding. The requests and byte counts are genuine; the glyphs are not.
+- **The stylesheets and scripts are generated, not authored.** They are real
+  CSS and JavaScript — the output parses, the selectors are real, the browser
+  personas apply and execute it — and they are sized against what a production
+  origin serves, but a person did not write them. The byte counts Apache
+  recorded are genuine either way.
+- **The product catalogue is one shop.** 130 products across 10 departments,
+  so the URL space is smaller than a real retailer's. Tracking parameters and
+  on-site search give it a long tail, but the set of *pages* is finite in a way
+  a real catalogue is not.
 - **Apache's internal dummy connections are kept**, labelled `unknown`, from
   `127.0.0.1`. Every real Apache log has them.
 """

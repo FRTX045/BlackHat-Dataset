@@ -62,20 +62,33 @@ class TestScenario(unittest.TestCase):
 
 class TestTiers(unittest.TestCase):
 
-    def test_small_and_medium_are_accepted(self):
-        validate_tier("small")
-        validate_tier("medium")
+    def test_every_declared_tier_is_accepted(self):
+        from tools.build import TIERS
+        for tier in TIERS:
+            with self.subTest(tier=tier):
+                validate_tier(tier)
 
-    def test_large_is_refused_rather_than_attempted(self):
-        # Excluded by decision, and never exercised. Accepting it would run for
-        # hours and produce something nobody had verified was buildable.
-        with self.assertRaises(BuildError) as caught:
-            validate_tier("large")
-        self.assertIn("large", str(caught.exception))
+    def test_a_tier_is_only_declared_once_it_has_a_scenario(self):
+        # `large` was refused for a long time because it had never been run.
+        # It has now been built and verified, so it is supported -- but the
+        # rule that produced the refusal still holds for anything added next:
+        # a tier with no scenario file cannot have been built.
+        from tools.build import TIERS
+        scenarios = REPO / "projects" / "apache-shopfront" / "scenarios"
+        for tier in TIERS:
+            with self.subTest(tier=tier):
+                self.assertTrue((scenarios / f"{tier}.toml").is_file())
 
     def test_an_unknown_tier_is_refused(self):
         with self.assertRaises(BuildError):
             validate_tier("enormous")
+
+    def test_the_refusal_names_what_is_actually_available(self):
+        from tools.build import TIERS
+        with self.assertRaises(BuildError) as caught:
+            validate_tier("enormous")
+        for tier in TIERS:
+            self.assertIn(tier, str(caught.exception))
 
 
 class TestDatasetDirectory(unittest.TestCase):

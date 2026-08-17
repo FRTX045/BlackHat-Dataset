@@ -1,15 +1,15 @@
-# apache-shopfront — medium — 2026-08-17
+# apache-shopfront — large — 2026-08-17
 
-241,542 lines of Apache Combined access log, with a ground-truth
+970,863 lines of Apache Combined access log, with a ground-truth
 record for every one of them.
 
 | | |
 |---|---|
-| Lines | 241,542 |
-| Seed | `19` |
-| Commit | `695e4e1f3c462fcd687f3f4828be7307df2ffb75` |
-| Built | 2026-08-17T05:11:40.574151+00:00 |
-| Wall clock | 694.891s |
+| Lines | 970,863 |
+| Seed | `31` |
+| Commit | `282e08a0610581d513d9ae4225d24fe26e8ef838` |
+| Built | 2026-08-17T05:23:28.959376+00:00 |
+| Wall clock | 3373.797s |
 
 ## How this dataset was produced
 
@@ -17,7 +17,7 @@ record for every one of them.
 
 Apache 2.4.68 (Debian) with PHP 8.3.33 under `mpm_prefork`, in Docker, built
 from `php:8.3-apache`. Image actually used:
-`logforge/apache-shopfront-web@sha256:35bf654fa85510c0e6c66b3616fc3a90555077516c0f3a88c38d4c8bb2a271c1`.
+`logforge/apache-shopfront-web@sha256:a54ff4fdbf4fb866596a4aaaca7a30cc352466db4811d64ac76d0277924c60ea`.
 
 Modules: `mod_remoteip`, `mod_php`, `mod_rewrite`, `mod_headers`,
 `mod_deflate`, `mod_setenvif`. Two server-level `CustomLog` directives,
@@ -27,7 +27,7 @@ No host port published. `/.lab-health` excluded from both logs.
 ### The application
 
 A PHP 8.3 + SQLite shopfront, 130 products across 10 categories, seeded from
-`19`. Deliberately vulnerable in 8 documented places and
+`31`. Deliberately vulnerable in 8 documented places and
 hardened in 5 others — see `projects/apache-shopfront/app/VULNERABILITIES.md`. Never
 reachable beyond its three Docker networks.
 
@@ -40,17 +40,17 @@ browser cache that revalidates rather than refetches.
 
 Measured for this run:
 
-- **2,760 distinct clients**, top-10 share
-  0.2237, busiest made
-  16,811 requests
-- **68 distinct user agents**, top-1 share
-  0.1939
-- Referer present on 48.97%
+- **7,484 distinct clients**, top-10 share
+  0.2084, busiest made
+  67,894 requests
+- **69 distinct user agents**, top-1 share
+  0.2776
+- Referer present on 54.66%
   of non-asset requests
 - Inter-arrival coefficient of variation
-  5.8027
+  6.6293
 
-**594 of these requests came from a real Chromium**, driven
+**635 of these requests came from a real Chromium**, driven
 by Playwright across 5 personas
 (`desktop-laptop`, `desktop-returning`, `desktop-wide`, `mobile-android`, `tablet`). That traffic is not
 built by the driver at all: the browser was handed a URL and the log records
@@ -78,7 +78,7 @@ what `instance_id` already means for every proxy-labelled source here.
 **The timestamps in `access.log` were rewritten, and `access.raw.log` is
 the log Apache actually wrote.** The driver issues its whole plan as fast as
 the sockets allow, so the capture covers
-661 seconds — the request *sequence* is
+3,253 seconds — the request *sequence* is
 meaningful and the timing is not.
 
 The rewrite moves each session's start onto the same diurnal and weekly curves
@@ -95,12 +95,12 @@ from. If you need the unrewritten article, it is `access.raw.log` with
 
 | | |
 |---|---|
-| Window | 2026-03-09T00:02:20.580286+00:00 → 2026-03-15T23:54:45.767188+00:00 |
-| Span | 6.99 days |
-| Days covered | 7 |
-| Achieved rate | 0.3997 requests/second |
-| Busiest second | 25 requests |
-| Sessions | 7,813 (51 pushed later to keep one session per address at a time) |
+| Window | 2026-03-09T00:02:25.063937+00:00 → 2026-04-07T23:59:19.994677+00:00 |
+| Span | 30.00 days |
+| Days covered | 30 |
+| Achieved rate | 0.3746 requests/second |
+| Busiest second | 23 requests |
+| Sessions | 30,219 (188 pushed later to keep one session per address at a time) |
 
 ### Which tools produced the attack traffic
 
@@ -110,7 +110,7 @@ from. If you need the unrewritten article, it is `access.raw.log` with
 | dirb | `2.22+dfsg-5` | 198.51.100.31 | 4,619 | 0 | / with dirb's common wordlist |
 | gobuster | `3.5.0-1+b1` | 198.51.100.33 | 4,615 | 0 | / with dirb's common wordlist, at four threads |
 | nmap | `7.93+dfsg1-1` | 198.51.100.32 | 10 | 0 | the proxy's HTTP port with http-* NSE scripts |
-| sqlmap | `1.7.2-1` | 192.0.2.31 | 48 | 0 | the planted SQL injection on /search |
+| sqlmap | `1.7.2-1` | 192.0.2.31 | 45 | 0 | the planted SQL injection on /search |
 
 The **Requests** column is the count the tag proxy actually recorded from each tool's address, not a count of tools that were started. A tool that ran, exited cleanly and reached nothing would otherwise be indistinguishable here from one that worked; the build refuses to finish if any of them is zero.
 
@@ -128,7 +128,7 @@ ordinary browsing interleaved:
 
 4 of 6 campaigns found something;
 2 did not. Attack traffic is
-**7.07%** of all lines.
+**4.21%** of all lines.
 
 An attack alone in a quiet window is separable on timestamp without reading a
 single request, so the campaigns and tool runs are issued *concurrently* with
@@ -136,8 +136,8 @@ the ordinary traffic. Two figures, because one is not enough:
 
 | | |
 |---|---|
-| Attack lines sharing their exact second with ordinary traffic | 11.51% |
-| Attack lines with ordinary traffic within ±30s | **65.76%** |
+| Attack lines sharing their exact second with ordinary traffic | 11.16% |
+| Attack lines with ordinary traffic within ±30s | **63.54%** |
 
 The first falls with the request rate for reasons that have nothing to do with
 how well the attack is hidden — a log at one request a second has almost no
@@ -152,17 +152,17 @@ log with that prefix removed, so line N of the log and line N of its truth
 file are the same request by construction.
 
 - Derived vs the log Apache wrote independently, on
-  `access.raw.log`: **241521/241542 lines agreed; Apache's own log has 241542 lines; first divergence at line 2638**
-- Unmatched request ids: **460**
+  `access.raw.log`: **970730/970863 lines agreed; Apache's own log has 970863 lines; first divergence at line 1705**
+- Unmatched request ids: **1557**
 - Of those, labelled by reserved source address:
-  **294**
+  **910**
 - Lines that did not parse as Combined: **0**
 
 ### How to rebuild it
 
 ```bash
-git checkout 695e4e1f3c462fcd687f3f4828be7307df2ffb75
-python3 tools/build.py apache-shopfront medium
+git checkout 282e08a0610581d513d9ae4225d24fe26e8ef838
+python3 tools/build.py apache-shopfront large
 ```
 
 The same seed reproduces the same request sequence. Timestamps and interleaving
@@ -173,17 +173,17 @@ and does not claim to be.
 
 | Category | Share |
 |---|---|
-| `static_asset` | 69.24% |
-| `crawling` | 10.51% |
-| `browsing` | 8.11% |
-| `enumeration` | 5.91% |
-| `api_call` | 4.59% |
-| `reconnaissance` | 1.09% |
+| `static_asset` | 71.74% |
+| `crawling` | 10.29% |
+| `browsing` | 8.44% |
+| `api_call` | 4.84% |
+| `enumeration` | 3.11% |
+| `reconnaissance` | 1.08% |
 | `authentication` | 0.42% |
 | `unknown` | 0.07% |
-| `injection` | 0.03% |
-| `access_control` | 0.01% |
-| `credential_attack` | 0.01% |
+| `injection` | 0.01% |
+| `access_control` | 0.00% |
+| `credential_attack` | 0.00% |
 | `exploitation` | 0.00% |
 | `path_traversal` | 0.00% |
 | `ssrf` | 0.00% |
@@ -192,15 +192,15 @@ and does not claim to be.
 
 | Status | Share |
 |---|---|
-| `200` | 74.08% |
-| `301` | 0.01% |
-| `302` | 0.41% |
-| `304` | 18.46% |
-| `400` | 0.13% |
+| `200` | 76.05% |
+| `301` | 0.00% |
+| `302` | 0.40% |
+| `304` | 19.33% |
+| `400` | 0.09% |
 | `401` | 0.00% |
 | `403` | 0.14% |
-| `404` | 6.71% |
-| `429` | 0.05% |
+| `404` | 3.96% |
+| `429` | 0.02% |
 | `500` | 0.01% |
 | `504` | 0.00% |
 
@@ -224,8 +224,8 @@ python3 tools/audit.py <this directory> --compare access.raw.log
 
 Written as they are, not as one would like them.
 
-- **Attack share is 7.07%.** The target is 2–8%.
-- **Static assets are 69.24%
+- **Attack share is 4.21%.** The target is 2–8%.
+- **Static assets are 71.74%
   of all lines.** High, though an image-heavy shop genuinely looks like this.
 - **XSS is barely visible in an access log.** The reflected payload appears in
   `%r`; retrieval of a stored payload is indistinguishable from ordinary
@@ -237,7 +237,7 @@ Written as they are, not as one would like them.
   analysis is meaningless on this data.
 - **The clock is reconstructed, not captured.** Session starts follow the arrival model rather than anything that was observed, and within-session spacing is inferred from each request's label. Use `access.raw.log` if you need what the server recorded.
 - **Single-request clients are
-  3.62% of clients**, far below what the
+  3.25% of clients**, far below what the
   address pool draws. In a log carrying asset cascades a one-page visitor still
   makes twenty requests; the pool's draw distribution and the log's per-client
   distribution are different things.

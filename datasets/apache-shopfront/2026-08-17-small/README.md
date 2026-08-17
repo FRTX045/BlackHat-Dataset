@@ -1,15 +1,15 @@
 # apache-shopfront — small — 2026-08-17
 
-65,678 lines of Apache Combined access log, with a ground-truth
+65,713 lines of Apache Combined access log, with a ground-truth
 record for every one of them.
 
 | | |
 |---|---|
-| Lines | 65,678 |
+| Lines | 65,713 |
 | Seed | `7` |
-| Commit | `695e4e1f3c462fcd687f3f4828be7307df2ffb75` |
-| Built | 2026-08-17T05:08:14.620498+00:00 |
-| Wall clock | 192.672s |
+| Commit | `9ece6bb054e8eb977aa5aa1224ccffb1ed3d2e0a` |
+| Built | 2026-08-17T07:30:53.799471+00:00 |
+| Wall clock | 188.417s |
 
 ## How this dataset was produced
 
@@ -17,7 +17,7 @@ record for every one of them.
 
 Apache 2.4.68 (Debian) with PHP 8.3.33 under `mpm_prefork`, in Docker, built
 from `php:8.3-apache`. Image actually used:
-`logforge/apache-shopfront-web@sha256:ea2ba39985c176a21860fe7c299a6d00e21b2df294f70fd1846bc0f2ad126b2e`.
+`logforge/apache-shopfront-web@sha256:300eca36da67e04e8037241f00cfa047267a011aafa20da6e14d87a90a8e97f5`.
 
 Modules: `mod_remoteip`, `mod_php`, `mod_rewrite`, `mod_headers`,
 `mod_deflate`, `mod_setenvif`. Two server-level `CustomLog` directives,
@@ -41,16 +41,16 @@ browser cache that revalidates rather than refetches.
 Measured for this run:
 
 - **938 distinct clients**, top-10 share
-  0.2224, busiest made
-  4,214 requests
+  0.2216, busiest made
+  4,091 requests
 - **64 distinct user agents**, top-1 share
-  0.2541
-- Referer present on 50.51%
+  0.2593
+- Referer present on 50.08%
   of non-asset requests
 - Inter-arrival coefficient of variation
-  4.9899
+  4.0146
 
-**613 of these requests came from a real Chromium**, driven
+**584 of these requests came from a real Chromium**, driven
 by Playwright across 5 personas
 (`desktop-laptop`, `desktop-returning`, `desktop-wide`, `mobile-android`, `tablet`). That traffic is not
 built by the driver at all: the browser was handed a URL and the log records
@@ -78,7 +78,7 @@ what `instance_id` already means for every proxy-labelled source here.
 **The timestamps in `access.log` were rewritten, and `access.raw.log` is
 the log Apache actually wrote.** The driver issues its whole plan as fast as
 the sockets allow, so the capture covers
-178 seconds — the request *sequence* is
+174 seconds — the request *sequence* is
 meaningful and the timing is not.
 
 The rewrite moves each session's start onto the same diurnal and weekly curves
@@ -95,12 +95,12 @@ from. If you need the unrewritten article, it is `access.raw.log` with
 
 | | |
 |---|---|
-| Window | 2026-03-09T00:00:48.713548+00:00 → 2026-03-10T00:09:04.653535+00:00 |
-| Span | 1.01 days |
-| Days covered | 2 |
-| Achieved rate | 0.7558 requests/second |
+| Window | 2026-03-09T00:00:05.464954+00:00 → 2026-03-09T23:59:18.706202+00:00 |
+| Span | 1.00 days |
+| Days covered | 1 |
+| Achieved rate | 0.761 requests/second |
 | Busiest second | 23 requests |
-| Sessions | 2,382 (30 pushed later to keep one session per address at a time) |
+| Sessions | 2,368 (33 pushed later to keep one session per address at a time) |
 
 ### Which tools produced the attack traffic
 
@@ -128,7 +128,7 @@ ordinary browsing interleaved:
 
 4 of 6 campaigns found something;
 2 did not. Attack traffic is
-**6.18%** of all lines.
+**6.14%** of all lines.
 
 An attack alone in a quiet window is separable on timestamp without reading a
 single request, so the campaigns and tool runs are issued *concurrently* with
@@ -136,8 +136,8 @@ the ordinary traffic. Two figures, because one is not enough:
 
 | | |
 |---|---|
-| Attack lines sharing their exact second with ordinary traffic | 25.84% |
-| Attack lines with ordinary traffic within ±30s | **93.00%** |
+| Attack lines sharing their exact second with ordinary traffic | 17.82% |
+| Attack lines with ordinary traffic within ±30s | **79.70%** |
 
 The first falls with the request rate for reasons that have nothing to do with
 how well the attack is hidden — a log at one request a second has almost no
@@ -152,7 +152,7 @@ log with that prefix removed, so line N of the log and line N of its truth
 file are the same request by construction.
 
 - Derived vs the log Apache wrote independently, on
-  `access.raw.log`: **65668/65678 lines agreed; Apache's own log has 65678 lines; first divergence at line 1400**
+  `access.raw.log`: **65702/65713 lines agreed; Apache's own log has 65713 lines; first divergence at line 1133**
 - Unmatched request ids: **169**
 - Of those, labelled by reserved source address:
   **94**
@@ -161,7 +161,7 @@ file are the same request by construction.
 ### How to rebuild it
 
 ```bash
-git checkout 695e4e1f3c462fcd687f3f4828be7307df2ffb75
+git checkout 9ece6bb054e8eb977aa5aa1224ccffb1ed3d2e0a
 python3 tools/build.py apache-shopfront small
 ```
 
@@ -173,11 +173,11 @@ and does not claim to be.
 
 | Category | Share |
 |---|---|
-| `static_asset` | 70.18% |
-| `crawling` | 10.21% |
-| `browsing` | 8.24% |
-| `enumeration` | 4.87% |
-| `api_call` | 4.60% |
+| `static_asset` | 70.14% |
+| `crawling` | 10.42% |
+| `browsing` | 8.19% |
+| `enumeration` | 4.83% |
+| `api_call` | 4.53% |
 | `reconnaissance` | 1.11% |
 | `authentication` | 0.46% |
 | `unknown` | 0.11% |
@@ -192,16 +192,16 @@ and does not claim to be.
 
 | Status | Share |
 |---|---|
-| `200` | 75.04% |
+| `200` | 75.16% |
 | `301` | 0.02% |
 | `302` | 0.48% |
-| `304` | 18.47% |
+| `304` | 18.40% |
 | `400` | 0.14% |
 | `401` | 0.02% |
-| `403` | 0.13% |
-| `404` | 5.63% |
+| `403` | 0.12% |
+| `404` | 5.59% |
 | `429` | 0.07% |
-| `500` | 0.01% |
+| `500` | 0.00% |
 | `504` | 0.00% |
 
 ## Does it look generated?
@@ -224,8 +224,8 @@ python3 tools/audit.py <this directory> --compare access.raw.log
 
 Written as they are, not as one would like them.
 
-- **Attack share is 6.18%.** The target is 2–8%.
-- **Static assets are 70.18%
+- **Attack share is 6.14%.** The target is 2–8%.
+- **Static assets are 70.14%
   of all lines.** High, though an image-heavy shop genuinely looks like this.
 - **XSS is barely visible in an access log.** The reflected payload appears in
   `%r`; retrieval of a stored payload is indistinguishable from ordinary

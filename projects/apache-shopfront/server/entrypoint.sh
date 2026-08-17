@@ -19,8 +19,11 @@ done
 # schema change would otherwise survive into the next run and make the
 # application 404 on tables the code believes exist.
 php /var/www/html/seed/seed.php
-chown -R www-data:www-data /var/www/html/data /var/www/html/assets \
-                           /var/www/html/uploads
+# Only what the application actually writes: the SQLite database and the
+# upload directory. Apache reads the generated assets and never writes them,
+# and chowning those to www-data on a bind mount leaves the host user unable
+# to delete files the seeder will happily regenerate.
+chown -R www-data:www-data /var/www/html/data /var/www/html/uploads
 
 # Start every run from empty logs. A build that inherited the previous run's
 # lines would ship a log whose truth file describes a different run, and

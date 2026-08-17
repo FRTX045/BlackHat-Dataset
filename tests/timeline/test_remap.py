@@ -11,6 +11,7 @@ the same lines, the same addresses, the same per-client episode structure, the
 same order within a session -- only the clock changed.
 """
 
+import collections
 import random
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -395,6 +396,94 @@ class TestOneAddressAtATime(unittest.TestCase):
         busiest = max(stamps.count(s) for s in set(stamps))
         self.assertLess(busiest, len(out) // 4)
         self.assertLessEqual(report.new_span_seconds, 86400 + 3600)
+
+
+class TestAutomatedEpisodesDoNotKeepHumanHours(unittest.TestCase):
+    """Bots do not sleep, and this module is the only thing that decides when
+    anything in the shipped log happened.
+
+    That last part was learned the hard way. The session planner was taught to
+    place monitors and crawlers uniformly, and it changed nothing at all,
+    because the remap discards the planner's times and redraws every episode
+    from the diurnal curve. Measured on the finished log afterwards: the small
+    hours were 6.4% automated and the evening peak 20.7% -- exactly backwards.
+
+    A real log's night is not empty, it is bot-dominated. A detector trained
+    on genuinely empty nights learns that any traffic at 4am is suspicious,
+    which is the opposite of the truth.
+    """
+
+    def capture(self):
+        """Equal numbers of human and automated episodes, so the difference in
+        where they land is entirely the remap's doing."""
+        lines, records, when = [], [], START
+        episode = 0
+        for n in range(600):
+            for ip, category in (("203.0.113.%d" % (10 + n % 200), "browsing"),
+                                 ("198.51.100.%d" % (10 + n % 200), "crawling")):
+                episode += 1
+                for _ in range(4):
+                    lines.append(line_for(ip, when))
+                    records.append({"line_no": len(lines), "client_ip": ip,
+                                    "category": category,
+                                    "instance_id": f"ep-{episode}"})
+            if n % 12 == 0:
+                when += timedelta(seconds=1)
+        return lines, records
+
+    def hours(self, out, truth, category):
+        return [parse_line(l)["ts"].hour
+                for l, r in zip(out, truth) if r["category"] == category]
+
+    def setUp(self):
+        lines, records = self.capture()
+        self.out, self.truth, _ = remap_records(
+            lines, records, start=START, duration_seconds=86400, seed=41)
+
+    def _ratio(self, hours):
+        # Four-hour windows, not single hours. With a few hundred episodes an
+        # individual hour can come up empty by chance, and a zero denominator
+        # turns Poisson noise into an enormous ratio that says nothing about
+        # the shape being measured.
+        counts = collections.Counter(h // 4 for h in hours)
+        windows = [counts[w] for w in range(6)]
+        return max(windows) / max(min(windows), 1)
+
+    def test_crawling_is_spread_evenly_across_the_day(self):
+        self.assertLess(self._ratio(self.hours(self.out, self.truth,
+                                               "crawling")), 3.0)
+
+    def test_browsing_still_follows_the_diurnal_curve(self):
+        self.assertGreater(self._ratio(self.hours(self.out, self.truth,
+                                                  "browsing")), 3.0)
+
+    def test_the_small_hours_are_more_automated_than_the_evening(self):
+        night = sum(1 for h in self.hours(self.out, self.truth, "crawling")
+                    if 1 <= h < 5)
+        night_all = sum(1 for l in self.out
+                        if 1 <= parse_line(l)["ts"].hour < 5)
+        peak = sum(1 for h in self.hours(self.out, self.truth, "crawling")
+                   if 18 <= h < 21)
+        peak_all = sum(1 for l in self.out
+                       if 18 <= parse_line(l)["ts"].hour < 21)
+        self.assertGreater(night / night_all, (peak / peak_all) * 1.5)
+
+    def test_attack_traffic_is_treated_as_automated_too(self):
+        # Opportunistic scanning is, if anything, night-heavy. Placing it on
+        # the shoppers' curve would make every attack in the dataset happen
+        # during business hours.
+        lines, records, when = [], [], START
+        for n in range(900):
+            ip = "192.0.2.%d" % (10 + n % 200)
+            lines.append(line_for(ip, when))
+            records.append({"line_no": len(lines), "client_ip": ip,
+                            "category": "enumeration",
+                            "instance_id": f"scan-{n}"})
+            if n % 20 == 0:
+                when += timedelta(seconds=1)
+        out, truth, _ = remap_records(lines, records, start=START,
+                                      duration_seconds=86400, seed=43)
+        self.assertLess(self._ratio(self.hours(out, truth, "enumeration")), 3.0)
 
 
 class TestReproducibilityAndReporting(unittest.TestCase):

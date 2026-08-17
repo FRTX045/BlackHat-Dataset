@@ -70,6 +70,26 @@ CORPUS = (
     ("Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", "bot_search", 10),
     ("Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)", "bot_search", 8),
 
+    # --- SEO, archival and AI crawlers
+    #
+    # Absent from an earlier version of this corpus, and their absence was a
+    # realism gap on its own: on a real public site these are a large share of
+    # all bot traffic, often larger than the search engines, and an analyst
+    # looking at a week of logs expects to see them. Weights are roughly the
+    # order they appear in real logs.
+    ("Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)", "bot_seo", 40),
+    ("Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)", "bot_seo", 30),
+    ("Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)", "bot_seo", 18),
+    ("Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)", "bot_seo", 12),
+    ("Mozilla/5.0 (compatible; PetalBot;+https://webmaster.petalsearch.com/site/petalbot)", "bot_seo", 14),
+    ("Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)", "bot_seo", 22),
+    ("Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)", "bot_seo", 16),
+    ("Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)", "bot_seo", 11),
+    ("Mozilla/5.0 (compatible; Barkrowler/0.9; +https://babbar.tech/crawler)", "bot_seo", 6),
+    ("Mozilla/5.0 (compatible; archive.org_bot +http://archive.org/details/archive.org_bot)", "bot_seo", 5),
+    ("facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)", "bot_seo", 9),
+    ("Twitterbot/1.0", "bot_seo", 5),
+
     # --- other well-behaved automation
     ("Mozilla/5.0 (compatible; feedparser/6.0.11; +https://github.com/kurtmckee/feedparser/)", "feed_reader", 14),
     ("Tiny Tiny RSS/24.02 (https://tt-rss.org/)", "feed_reader", 6),
@@ -95,7 +115,9 @@ PERSONA_UA_CLASSES = {
     "returning_customer": ("desktop_chrome", "desktop_firefox",
                            "desktop_safari"),
     "mobile_user": ("mobile_ios", "mobile_android"),
-    "crawler": ("bot_search",),
+    # Both, because a real site's crawl traffic is not only the search
+    # engines: the SEO and AI crawlers are frequently the larger share.
+    "crawler": ("bot_search", "bot_seo"),
     "feed_reader": ("feed_reader",),
     "uptime_monitor": ("uptime_monitor",),
     # Scanners and attackers present whatever their tooling sends. Real

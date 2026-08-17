@@ -156,9 +156,19 @@ class TestClientCoherence(unittest.TestCase):
                             for cls in PERSONA_UA_CLASSES[ua_persona]))
 
     def test_a_crawler_gets_cloud_space_and_only_bot_agents(self):
+        # Asserted as a property, not as a literal tuple. The point is that a
+        # crawler never presents a human browser string; which families of bot
+        # it may present is a modelling choice that should be free to change,
+        # and pinning the tuple made adding the SEO and AI crawlers -- which
+        # are a large share of real crawl traffic -- look like a regression.
         ua_persona, role = PERSONA_IDENTITY["crawler"]
         self.assertEqual(role, "cloud")
-        self.assertEqual(PERSONA_UA_CLASSES[ua_persona], ("bot_search",))
+        classes = PERSONA_UA_CLASSES[ua_persona]
+        self.assertTrue(classes)
+        for cls in classes:
+            with self.subTest(ua_class=cls):
+                self.assertTrue(cls.startswith("bot_"),
+                                f"a crawler may present {cls!r}")
 
 
 class TestDeterminism(unittest.TestCase):

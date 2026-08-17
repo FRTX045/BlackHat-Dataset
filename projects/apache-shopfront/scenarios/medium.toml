@@ -49,13 +49,13 @@ pace = 3.0
 # Same mix as the small tier. The tiers differ in volume and in span, not in
 # what the traffic is -- a medium run that changed the persona weights could
 # not be used to check whether a detector trained on small generalises.
-shopper = 0.26
-casual = 0.29
-returning = 0.09
-mobile = 0.13
-crawler = 0.07
-monitor = 0.03
-scanner = 0.13
+shopper = 0.20
+casual = 0.22
+returning = 0.08
+mobile = 0.10
+crawler = 0.18
+monitor = 0.10
+scanner = 0.12
 
 [attacks]
 campaigns = [

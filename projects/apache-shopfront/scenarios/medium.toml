@@ -11,6 +11,10 @@
 kind = "weblog-truth"
 seed = 19
 
+# Top-level: above the first [table] header, or TOML makes them keys of it.
+target_lines = 250000
+attack_share_target = 0.05
+
 [timeline]
 remap = true
 # The same Monday the small tier starts on, so the two tiers line up and a
@@ -21,18 +25,25 @@ start = "2026-03-09T00:00:00+00:00"
 # a shorter window.
 duration_seconds = 604800
 
-target_lines = 250000
-attack_share_target = 0.05
-
 [traffic]
-duration_seconds = 14400
-session_rate = 0.42
+# Must equal [timeline] duration_seconds: the driver plans a week of arrivals
+# and the remap places them across that same week. 0.0125 across seven days is
+# about 4,800 sessions, roughly the 250,000-line target at the measured ~53
+# lines per session.
+duration_seconds = 604800
+session_rate = 0.0125
 # Higher than small: the run is longer, and the point of the medium tier is
 # volume. Above about 48 the driver starts losing connections rather than
 # going faster, which shows up as 500s the application never generated.
 concurrency = 40
 
 noise_requests = 400
+
+[browser]
+# Same personas as the small tier, paced closer to real reading time: this run
+# has a week of virtual span to fill and can afford the wall clock.
+enabled = true
+pace = 3.0
 
 [personas]
 # Same mix as the small tier. The tiers differ in volume and in span, not in

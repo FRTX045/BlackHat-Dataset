@@ -241,8 +241,16 @@ class Driver:
 
 async def main_async(args):
     catalogue = json.loads(Path(args.catalogue).read_text())
+    # The scenario's window, never the wall clock.
+    #
+    # `arrivals.py` thins by a diurnal curve, so planning from
+    # `datetime.now()` made the size of the dataset a function of what time
+    # the build was started. Two builds of the same scenario at the same seed
+    # came out at 75,474 and 13,032 lines -- one ran in the evening peak and
+    # the other just after midnight. Both READMEs claimed the seed reproduced
+    # the request sequence, and the volume was the part that moved.
     sessions = plan_sessions(
-        datetime.now(timezone.utc), args.duration, args.rate,
+        datetime.fromisoformat(args.start), args.duration, args.rate,
         json.loads(args.personas), args.seed)
 
     args.ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -266,6 +274,13 @@ def main(argv=None):
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--catalogue", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--start", required=True,
+                        help="ISO 8601 start of the window to plan across, "
+                             "with an offset. Required rather than defaulted "
+                             "to now: the arrival model has a diurnal curve, "
+                             "so planning from the wall clock made the size "
+                             "of the dataset depend on what time the build "
+                             "was run.")
     parser.add_argument("--duration", type=float, default=600.0,
                         help="virtual seconds of arrivals to plan")
     parser.add_argument("--rate", type=float, default=0.05,

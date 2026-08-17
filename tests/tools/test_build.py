@@ -102,6 +102,20 @@ class TestTheShippedScenarios(unittest.TestCase):
         names = {p.stem for p in self.scenarios()}
         self.assertEqual(set(TIERS) - names, set())
 
+    def test_the_top_level_keys_are_actually_top_level(self):
+        # TOML makes every key after a [table] header a key *of* that table.
+        # Inserting [timeline] above `target_lines` silently moved it inside,
+        # in both scenarios, and nothing noticed because nothing read it yet.
+        for path in self.scenarios():
+            scenario = load_scenario(path)
+            with self.subTest(tier=path.stem):
+                for key in ("kind", "seed", "target_lines",
+                            "attack_share_target"):
+                    self.assertIn(key, scenario,
+                                  f"{key} is not top-level; check it sits "
+                                  f"above the first [table] header")
+                self.assertNotIn("target_lines", scenario.get("timeline", {}))
+
     def test_each_one_loads_and_declares_a_seed(self):
         for path in self.scenarios():
             with self.subTest(tier=path.stem):

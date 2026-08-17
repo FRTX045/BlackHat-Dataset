@@ -262,7 +262,99 @@ def sequential_client_addresses(records):
                  explanation)
 
 
+#: Floor sizes, in bytes **as sent on the wire**, so already compressed where
+#: the server compresses. Below these a response is a demo application's, not
+#: a shop's.
+#:
+#: Deliberately conservative -- a lean, well-built site can serve a 6 KB
+#: gzipped stylesheet, and this is not a style guide. What it catches is the
+#: order-of-magnitude case: the 602-byte stylesheet and the 574-byte "bundle"
+#: that a demo app produces, which make `%b` useless for the analysis it is
+#: most often used for.
+_ASSET_FLOORS = {
+    "css": 3_000,
+    "js": 4_000,
+    "html": 2_500,
+    "image": 3_000,
+}
+
+_ASSET_KINDS = (
+    ((".css",), "css"),
+    ((".js",), "js"),
+    ((".jpg", ".jpeg", ".png", ".webp", ".gif"), "image"),
+)
+
+
+def _asset_kind(path):
+    if not path:
+        return None
+    bare = path.split("?", 1)[0].lower()
+    for suffixes, kind in _ASSET_KINDS:
+        if bare.endswith(suffixes):
+            return kind
+    # Fonts and icons are fixed files whose real size varies hugely by how the
+    # face was subset; no useful floor exists. API responses are legitimately
+    # tiny. Neither is measured.
+    if bare.endswith((".woff", ".woff2", ".ttf", ".ico", ".svg", ".map")):
+        return None
+    if bare.startswith("/api/"):
+        return None
+    return "html"
+
+
+def toy_asset_sizes(records):
+    """Responses small enough to give away a demo application.
+
+    `%b` is one of the most-used columns in real log analysis -- exfiltration
+    volume, response-size anomaly detection, cache work all begin there. A
+    dataset whose stylesheets are 600 bytes and whose front-end bundle is 574
+    is worthless for all of it, and nothing in the status, category or
+    inter-arrival distributions shows the problem.
+
+    Measured on the median rather than the minimum: a real site serves some
+    genuinely tiny files, and one of them is not a finding.
+    """
+    name, threshold = "toy_asset_sizes", _ASSET_FLOORS
+    explanation = ("Median response size per content kind, in bytes as sent. "
+                   "Below the floor for a kind, the application serving it is "
+                   "a demo rather than a shop, and %b cannot be used for the "
+                   "analysis it is most often used for.")
+    small = _too_small(name, threshold, explanation, len(records))
+    if small:
+        return small
+
+    by_kind = collections.defaultdict(list)
+    for record in records:
+        # Only successful responses that carried a body: a 404 for a
+        # stylesheet is an error page, and a 304 has no body to measure.
+        if record.get("status") != 200 or not record.get("bytes"):
+            continue
+        kind = _asset_kind(record.get("path"))
+        if kind in _ASSET_FLOORS:
+            by_kind[kind].append(record["bytes"])
+
+    measured, undersized = {}, []
+    for kind, floor in _ASSET_FLOORS.items():
+        sizes = by_kind.get(kind)
+        if not sizes or len(sizes) < 20:
+            continue
+        median = statistics.median(sizes)
+        measured[kind] = int(median)
+        if median < floor:
+            undersized.append(f"{kind} ({median:,.0f} < {floor:,})")
+
+    if not measured:
+        return _tell(name, None, threshold, False,
+                     explanation + " No measurable assets in this log.",
+                     inconclusive=True)
+
+    return _tell(name, measured, threshold, bool(undersized),
+                 explanation + (f" Undersized here: {', '.join(undersized)}."
+                                if undersized else " All above the floor."))
+
+
 TELLS = (
+    toy_asset_sizes,
     round_response_sizes,
     implausible_rate,
     agent_monoculture,

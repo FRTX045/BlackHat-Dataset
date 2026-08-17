@@ -231,6 +231,71 @@ class TestSequentialClientAddresses(unittest.TestCase):
                     "sequential_client_addresses").suspicious)
 
 
+class TestToyAssetSizes(unittest.TestCase):
+    """Response sizes that give away a demo application.
+
+    `%b` is one of the most-used columns in real log analysis -- exfiltration
+    volume, anomaly detection on response size, cache-efficiency work all
+    start there. A dataset whose stylesheets are 600 bytes and whose front-end
+    bundle is 574 is useless for every one of those, and it is invisible in
+    the status and category distributions that all looked fine.
+
+    Found by reading twenty-five lines of a shipped log by eye, after every
+    aggregate statistic had passed.
+    """
+
+    def a_log_with(self, sizes):
+        # sizes: {path: bytes}. Repeated enough times to clear both the
+        # audit's 150-line floor and this tell's own 20-per-kind minimum.
+        out = []
+        for n in range(80):
+            for path, size in sizes.items():
+                out.append(rec(path=path, size=size, offset=n * 3))
+        return out
+
+    def test_it_fires_on_a_kilobyte_stylesheet_and_bundle(self):
+        log = self.a_log_with({"/assets/css/site.css": 602,
+                               "/assets/js/app.js": 574,
+                               "/": 1374})
+        tell = by_name(audit(log), "toy_asset_sizes")
+        self.assertTrue(tell.suspicious)
+        self.assertIn("css", tell.explanation)
+
+    def test_it_stays_quiet_on_realistic_sizes(self):
+        # Sizes as sent on the wire, so already compressed.
+        log = self.a_log_with({"/assets/css/site.css": 11_400,
+                               "/assets/js/app.js": 28_900,
+                               "/": 9_800,
+                               "/assets/img/p/3.jpg": 64_000})
+        self.assertFalse(by_name(audit(log), "toy_asset_sizes").suspicious)
+
+    def test_it_names_which_kinds_were_too_small(self):
+        log = self.a_log_with({"/assets/css/site.css": 400,
+                               "/assets/js/app.js": 41_000,
+                               "/": 12_000})
+        tell = by_name(audit(log), "toy_asset_sizes")
+        self.assertIn("css", tell.explanation)
+        self.assertNotIn("js", tell.explanation.split("css")[1])
+
+    def test_a_log_with_no_assets_at_all_is_inconclusive(self):
+        log = [rec(path="/api/stock", size=900, offset=n * 3)
+               for n in range(200)]
+        tell = by_name(audit(log), "toy_asset_sizes")
+        self.assertTrue(tell.inconclusive)
+        self.assertFalse(tell.suspicious)
+
+    def test_only_successful_responses_with_a_body_are_measured(self):
+        # A 404 for a stylesheet is an error page, not a stylesheet, and a 304
+        # carries no body at all.
+        log = ([rec(path="/assets/css/site.css", size=11_400, offset=n * 3)
+                for n in range(60)]
+               + [rec(path="/assets/css/gone.css", size=210, status=404,
+                      offset=n * 3) for n in range(60)]
+               + [rec(path="/assets/css/site.css", size=None, status=304,
+                      offset=n * 3) for n in range(60)])
+        self.assertFalse(by_name(audit(log), "toy_asset_sizes").suspicious)
+
+
 class TestTheReport(unittest.TestCase):
 
     def test_every_tell_publishes_the_threshold_it_used(self):

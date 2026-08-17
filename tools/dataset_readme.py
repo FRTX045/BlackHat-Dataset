@@ -87,6 +87,35 @@ session-duration-based can be studied on this file."""
                       "attack traffic here is entirely hand-written, from "
                       "`attacks/playbooks.py`.")
 
+    browser = manifest.get("browser") or {}
+    if browser.get("requests"):
+        browser_text = f"""**{browser['requests']:,} of these requests came from a real Chromium**, driven
+by Playwright across {len(browser['personas'])} personas
+({', '.join(f'`{p}`' for p in browser['personas'])}). That traffic is not
+built by the driver at all: the browser was handed a URL and the log records
+what Chromium chose to ask for.
+
+It is a small share of the log and worth more than its size. A browser asks
+for a page's subresources in an order no hand-rolled driver reproduces — the
+preload scanner runs first, fonts wait for the CSS that references them to
+parse, XHR interleaves with lazily-loaded images across six connections. It
+also *declines* to make requests, because a second page view asks for nothing
+already in its cache, and absence is as much a part of a real log as presence.
+The conditional requests in this traffic come from Chromium's own cache
+deciding to revalidate rather than from a coin flip.
+
+No request interception was used. Playwright can rewrite headers per request,
+which would have let the browser mint its own request ids, but it disables the
+HTTP cache — and the cache is most of why running a browser is worth anything.
+The tag proxy mints the ids instead, exactly as it does for the security
+tools, so this traffic is labelled per request. One consequence: a browser
+`instance_id` is a run of one activity rather than a whole session, which is
+what `instance_id` already means for every proxy-labelled source here."""
+    else:
+        browser_text = ("No headless-browser traffic in this build. The "
+                        "cascades are real requests for real subresources, "
+                        "ordered by the driver rather than by Chromium.")
+
     findings = manifest.get("audit", {}).get("findings", [])
     fired = [f for f in findings if f["suspicious"]]
     if findings:
@@ -160,8 +189,7 @@ Measured for this run:
 - Inter-arrival coefficient of variation
   {stats['inter_arrival'].get('coefficient_of_variation')}
 
-No headless-browser traffic: Playwright was not built. The cascades are real
-requests for real subresources, ordered by the driver rather than by Chromium.
+{browser_text}
 
 #### When it says it happened
 

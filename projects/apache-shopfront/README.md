@@ -72,10 +72,40 @@ Background noise arrives over raw sockets from an address reserved for nothing
 else: `CONNECT` requests, requests with no `Host` header, and request lines
 malformed enough that Apache rejects them before reading a header.
 
-> **Not included:** real headless-browser traffic. The plan called for 10–20%
-> of sessions through Playwright; that is not built. The cascades in this data
-> are real requests for real subresources, but their ordering is the driver's
-> rather than Chromium's.
+**A share of the traffic comes from a real Chromium**, driven by Playwright
+across five personas ([traffic/browser.py](traffic/browser.py)). That source
+does not decide what to request: it is handed a URL and the log records what
+the browser chose to ask for.
+
+It is a few hundred lines of a seventy-thousand-line file, and it is worth
+more than its size, because it is the only traffic here that is not a
+program's idea of what a browser does:
+
+- **Subresource order as Chromium orders it.** The preload scanner runs
+  before layout, fonts wait for the CSS that references them to parse, and XHR
+  interleaves with lazily-loaded images across six connections. The driver's
+  cascades are real requests for real subresources; their *sequence* is a
+  program's.
+- **The requests it does not make.** A second page view asks for nothing
+  already in its cache. Absence is as much a part of a real log as presence,
+  and it is very hard to fake convincingly.
+- **Conditional requests from a real cache** deciding to revalidate, rather
+  than from a coin flip.
+- **The favicon**, asked for once per origin, prompted by no markup at all.
+
+One container serves all five personas: each connects to its own tag-proxy
+port, and those ports run in **fixed** mode, so the address the proxy declares
+is the persona's rather than the container's. Their addresses sit in the
+residential range below the block `ippools` draws recurring clients from, so
+the session driver can never draw one — two sources writing episodes for one
+client would break the contiguity the truth file promises.
+
+No request interception is used. Playwright can rewrite headers per request,
+which would let the browser mint its own request ids and declare its own
+labels, but it disables the HTTP cache — and the cache is most of the reason
+to run a browser at all. The tag proxy mints the ids instead, so this traffic
+is labelled per request, and a browser `instance_id` is a run of one activity
+rather than a whole session.
 
 ### Which tools produced the attack traffic
 

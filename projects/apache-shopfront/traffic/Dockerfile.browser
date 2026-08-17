@@ -1,0 +1,23 @@
+# A real Chromium, for the headless-browser personas.
+#
+# Built on Microsoft's Playwright image rather than installing a browser from
+# scratch: it carries the exact Chromium build this Playwright release expects,
+# already patched for a container, with the font and codec libraries a page
+# needs in order to lay out the way it would on a desktop. Assembling that by
+# hand is how a "browser" ends up rendering nothing and requesting no fonts.
+#
+# The image ships the browsers under /ms-playwright and, despite the name, no
+# Python client -- `import playwright` fails in it. That is checked at build
+# time below rather than discovered at run time, where it surfaces as a
+# browser that made no requests.
+FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
+
+# Pinned to the image's own tag. A client newer than the bundled browsers
+# downloads its own set on first use, which would silently swap the browser
+# the manifest says was used for one it did not.
+RUN pip install --no-cache-dir playwright==1.55.0 \
+ && python3 -c "import playwright; print(playwright.__file__)"
+
+# PLAYWRIGHT_BROWSERS_PATH is already /ms-playwright in the base image, so the
+# client finds the bundled Chromium and downloads nothing.
+WORKDIR /opt/logforge

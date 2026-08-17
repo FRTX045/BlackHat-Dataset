@@ -30,5 +30,30 @@
   "8087": {
     "mode": "peer",
     "actor": "tool:nmap"
+  },
+  "8090": {
+    "mode": "fixed",
+    "client_ip": "203.0.113.41",
+    "actor": "browser"
+  },
+  "8091": {
+    "mode": "fixed",
+    "client_ip": "203.0.113.42",
+    "actor": "browser"
+  },
+  "8092": {
+    "mode": "fixed",
+    "client_ip": "203.0.113.43",
+    "actor": "browser"
+  },
+  "8093": {
+    "mode": "fixed",
+    "client_ip": "203.0.113.44",
+    "actor": "browser"
+  },
+  "8094": {
+    "mode": "fixed",
+    "client_ip": "203.0.113.45",
+    "actor": "browser"
   }
 }

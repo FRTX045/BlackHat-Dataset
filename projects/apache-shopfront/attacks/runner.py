@@ -28,7 +28,8 @@ from pathlib import Path
 sys.path.insert(0, "/opt/logforge")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from campaigns import by_name, campaign_steps  # noqa: E402
+from campaigns import (by_name, campaign_seed,  # noqa: E402
+                       campaign_steps)
 from playbooks import WEBSHELL_BODY  # noqa: E402
 from shared.truth.ids import new_request_id  # noqa: E402
 
@@ -164,9 +165,20 @@ class Operator:
         self.issued += 1
         return status
 
+
+def campaign_rng(name, seed):
+    """The rng a campaign run uses, which is to say the one its interludes use.
+
+    Seeded through `campaign_seed` rather than from `hash(name)` directly: str
+    hashing is salted per process, so the old derivation quietly gave every
+    build a different plan from the same scenario seed.
+    """
+    return random.Random(campaign_seed(name, seed))
+
+
 def run_campaign(name, ledger_path, pace, seed):
     campaign = by_name(name)
-    rng = random.Random(seed ^ (hash(name) & 0xFFFF))
+    rng = campaign_rng(name, seed)
     steps = campaign_steps(campaign, rng)
 
     ledger_path.parent.mkdir(parents=True, exist_ok=True)

@@ -169,6 +169,14 @@ The same seed reproduces the same request sequence. Timestamps and interleaving
 differ between runs under real concurrency; this is not byte-identical output
 and does not claim to be.
 
+With one exception, for this dataset. It was built before the fix for a defect
+in the campaign seeding: each attacker's random state came from
+`hash(campaign_name)`, which Python salts per process, so the short browsing
+lulls between attack phases are redrawn on every rebuild. The attack requests
+themselves are unaffected. The commit named above is the one that built this
+dataset and still contains the defect, so a rebuild from it reproduces the
+defect rather than the lulls. See `docs/methodology.md`, "On reproducibility".
+
 ## Category shares
 
 | Category | Share |

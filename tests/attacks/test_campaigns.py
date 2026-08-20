@@ -5,18 +5,23 @@ the dataset at all: it tells a story in order, it is interleaved with ordinary
 browsing, its episodes are contiguous, and at least one of them fails.
 """
 
+import os
 import random
+import subprocess
 import sys
+import textwrap
 import unittest
 from pathlib import Path
 
 from shared.truth.writer import CATEGORIES
 
-sys.path.insert(
-    0, str(Path(__file__).resolve().parents[2]
-           / "projects" / "apache-shopfront" / "attacks"))
+REPO = Path(__file__).resolve().parents[2]
+ATTACKS = REPO / "projects" / "apache-shopfront" / "attacks"
 
-from campaigns import CAMPAIGNS, campaign_steps, by_name  # noqa: E402
+sys.path.insert(0, str(ATTACKS))
+
+from campaigns import (CAMPAIGNS, by_name,  # noqa: E402
+                       campaign_seed, campaign_steps)
 
 ATTACK_CATEGORIES = {
     "reconnaissance", "enumeration", "injection", "path_traversal",
@@ -25,7 +30,14 @@ ATTACK_CATEGORIES = {
 
 
 def steps_for(campaign, seed=7):
-    return campaign_steps(campaign, random.Random(seed))
+    """Expand a campaign the way the runner does.
+
+    Through `campaign_seed`, not `random.Random(seed)` directly: a helper that
+    builds its own rng tests a derivation the build never uses, which is how
+    the hash-seeding defect survived a determinism test for as long as it did.
+    """
+    return campaign_steps(campaign, random.Random(
+        campaign_seed(campaign.name, seed)))
 
 
 class TestEveryCampaign(unittest.TestCase):
@@ -139,6 +151,64 @@ class TestAttackerIdentity(unittest.TestCase):
         for campaign in CAMPAIGNS:
             with self.subTest(campaign=campaign.name):
                 self.assertEqual(steps_for(campaign, 11), steps_for(campaign, 11))
+
+
+class TestTheSeedSurvivesLeavingTheProcess(unittest.TestCase):
+    """The scenario seed has to reproduce a campaign next year, on another box.
+
+    Every other determinism test here stays inside one interpreter, where
+    anything derived from `hash()` on a string looks perfectly stable. It is
+    not: str hashing is salted per process unless PYTHONHASHSEED is fixed, and
+    nothing in this repository fixes it. So the property is checked the only
+    way it can be -- from outside, under two different hash seeds.
+    """
+
+    def _run(self, hashseed, expression):
+        script = textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(REPO)!r})
+            sys.path.insert(0, {str(ATTACKS)!r})
+            from campaigns import CAMPAIGNS, campaign_seed, campaign_steps
+            import random
+            print({expression})
+        """)
+        outcome = subprocess.run(
+            [sys.executable, "-c", script],
+            env={**os.environ, "PYTHONHASHSEED": hashseed},
+            capture_output=True, text=True, check=False)
+        if outcome.returncode:
+            self.fail(f"subprocess failed under PYTHONHASHSEED={hashseed}:\n"
+                      f"{outcome.stderr.strip()}")
+        return outcome.stdout.strip()
+
+    def test_the_derived_seed_ignores_the_interpreters_hash_seed(self):
+        expression = "campaign_seed('patient_operator', 7)"
+        self.assertEqual(self._run("0", expression),
+                         self._run("12345", expression))
+
+    def test_a_campaign_expands_identically_under_a_different_hash_seed(self):
+        expression = ("[tuple(s) for s in campaign_steps("
+                      "CAMPAIGNS[0], random.Random("
+                      "campaign_seed(CAMPAIGNS[0].name, 7)))]")
+        self.assertEqual(self._run("0", expression),
+                         self._run("12345", expression))
+
+    def test_the_runner_plans_its_campaign_from_the_same_stable_seed(self):
+        """The fix has to reach the code the build actually runs.
+
+        `campaign_seed` being stable is worth nothing if `run_campaign` still
+        derives its own rng from `hash()`, so this asks the runner for the rng
+        it would really use and makes it draw.
+        """
+        expression = ("__import__('runner').campaign_rng("
+                      "'patient_operator', 7).random()")
+        self.assertEqual(self._run("0", expression),
+                         self._run("12345", expression))
+
+    def test_two_campaigns_do_not_collapse_onto_one_seed(self):
+        seeds = self._run(
+            "0", "[campaign_seed(c.name, 7) for c in CAMPAIGNS]")
+        self.assertEqual(len(set(eval(seeds))), len(CAMPAIGNS))
 
 
 if __name__ == "__main__":

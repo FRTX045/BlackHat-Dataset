@@ -25,6 +25,7 @@ Stdlib only.
 """
 
 import sys
+import zlib
 from pathlib import Path
 from typing import NamedTuple
 
@@ -112,6 +113,19 @@ def _interlude(rng, index):
                        rng.uniform(4.0, 12.0),
                        note="looking at the site like a customer")
             for method, path in picks]
+
+
+def campaign_seed(name, seed):
+    """Derive one campaign's rng seed from the scenario seed and its name.
+
+    `zlib.crc32` rather than the builtin `hash`: str hashing is salted per
+    process unless PYTHONHASHSEED is fixed, and nothing here fixes it. A
+    derivation built on it gives every build a different set of interludes
+    while passing any determinism test that stays inside one interpreter --
+    which is precisely what happened, and why the check for this one spawns
+    subprocesses.
+    """
+    return seed ^ (zlib.crc32(name.encode("utf-8")) & 0xFFFF)
 
 
 def campaign_steps(campaign, rng):

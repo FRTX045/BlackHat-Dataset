@@ -407,3 +407,22 @@ actually went.
 Byte-identical output is not claimed, because it cannot be delivered. A dataset
 that claims a property it does not have is worse than one that is honest about
 its limits — the first one gets trusted.
+
+That claim was wrong for a while, in a small way, and the correction belongs
+here rather than in a commit message. Until 2026-08-20 each campaign drew its
+random state from `hash(campaign_name)`. Python salts string hashing per
+process unless `PYTHONHASHSEED` is set, and nothing here sets it, so the same
+scenario seed produced a different plan on every build. The attack requests
+were never affected — a playbook takes no random state and expands identically
+every time — but the short browsing lulls between phases were redrawn, varying
+by a few requests out of the 36 to 39 the six campaigns issue between them.
+
+The determinism test that should have caught it compared two expansions inside
+one interpreter, where a salted hash is constant, and it built its own random
+state rather than the one the runner uses. Both are now checked from a
+subprocess under two different hash seeds.
+
+The three datasets under `datasets/` were built before the fix and carry the
+defect. Their attack traffic reproduces; their lulls do not. Note that their
+`How to rebuild it` instructions pin a commit that predates the fix, so
+following them reproduces the defect too.

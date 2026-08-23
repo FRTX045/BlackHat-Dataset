@@ -720,9 +720,17 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             raw = name.replace(".log", ".raw.log").replace(
                 ".jsonl", ".raw.jsonl")
             (out / name).replace(out / raw)
+        # The tool containers are the one thing here nobody paced: `runner.py`
+        # divides an operator's pauses by the pace factor, but `toolruns.py`
+        # just launches dirb. Their captured timing is the true one and the
+        # remap must not redraw it -- measured, dirb's 961 requests took 9
+        # seconds in the capture and 11,533 in the log that shipped.
+        sys.path.insert(0, str(project_dir / "attacks"))
+        from toolruns import TOOL_RUNS  # noqa: PLC0415 - per-project module
         state["remap"] = remap_files(
             out / "access.raw.log", out / "truth.raw.jsonl",
             out / "access.log", out / "truth.jsonl",
+            unpaced=frozenset(run.address for run in TOOL_RUNS),
             start=datetime.fromisoformat(timeline["start"]),
             duration_seconds=timeline["duration_seconds"],
             seed=scenario["seed"])

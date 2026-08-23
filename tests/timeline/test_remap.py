@@ -64,6 +64,59 @@ def a_run(n_clients=12, seed=1):
     return lines, records
 
 
+def a_scanner(address="198.51.100.34", requests=200, seed=2):
+    """A tool walking a wordlist as fast as the socket allows.
+
+    Nothing paces this in the real build either: `runner.py` divides its think
+    times by the pace factor, but `toolruns.py` just launches dirb, so what
+    the capture recorded is what really happened.
+    """
+    lines, records, when = [], [], START
+    for n in range(requests):
+        lines.append(line_for(address, when, f"/wordlist/{n}"))
+        records.append({"line_no": len(lines), "client_ip": address,
+                        "category": "enumeration", "instance_id": "scan-1"})
+        if n % 20 == 19:                       # ~10 requests a second
+            when += timedelta(seconds=1)
+    return lines, records
+
+
+class TestTrafficThatWasNeverPaced(unittest.TestCase):
+    """A scanner's captured timing is the truthful one; do not overwrite it.
+
+    Measured on a real build: dirb issued 961 requests in **9 seconds**, and
+    the shipped log spread them over **11,533** -- a median gap of 9.0s, which
+    is `_OPERATOR_SHAPE`'s median, a human's thinking time applied to a tool.
+    No scanner on earth behaves like that.
+    """
+
+    def spans(self, unpaced):
+        lines, records = a_scanner()
+        out, _, _ = remap_records(lines, records, start=START,
+                                  duration_seconds=86400, seed=5,
+                                  unpaced=unpaced)
+        stamps = sorted(parse_line(line)["ts"] for line in out)
+        return (stamps[-1] - stamps[0]).total_seconds()
+
+    def test_a_scanners_own_pace_survives_the_remap(self):
+        captured = self.spans(frozenset({"198.51.100.34"}))
+        self.assertLess(captured, 60,
+                        "the scanner was stretched out over minutes")
+
+    def test_everything_else_is_still_redrawn(self):
+        # The default must not quietly change: paced sources still need their
+        # capture-time compression undone.
+        self.assertGreater(self.spans(frozenset()), 600)
+
+    def test_the_order_within_the_burst_is_kept(self):
+        lines, records = a_scanner()
+        out, _, _ = remap_records(lines, records, start=START,
+                                  duration_seconds=86400, seed=5,
+                                  unpaced=frozenset({"198.51.100.34"}))
+        paths = [parse_line(line)["path"] for line in out]
+        self.assertEqual(paths, [f"/wordlist/{n}" for n in range(len(paths))])
+
+
 class TestArrivalsForACount(unittest.TestCase):
     """The remap needs exactly one start per episode, which the thinning
     sampler cannot give -- it returns however many it returns."""

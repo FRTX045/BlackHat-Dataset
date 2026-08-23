@@ -152,6 +152,25 @@ def _gap(rng, category):
     return min(rng.lognormvariate(mu, sigma), ceiling)
 
 
+def _offsets(matches, indices):
+    """Seconds from the first line of an episode to each of the rest.
+
+    Taken from what the server actually wrote. An unparsed line has no stamp
+    to offer, so it inherits the last one that did rather than dropping the
+    episode's shape on the floor.
+    """
+    seconds, first, last = [], None, 0.0
+    for index in indices:
+        match = matches[index]
+        if match is not None:
+            stamp = datetime.strptime(match.group("ts"), _TS_FMT)
+            if first is None:
+                first = stamp
+            last = (stamp - first).total_seconds()
+        seconds.append(last)
+    return seconds
+
+
 def _episodes(records):
     """Group line indices into sessions: a contiguous run of one instance_id
     for one client. Grouping by the id alone would silently merge two sessions
@@ -171,7 +190,8 @@ def _episodes(records):
 
 
 
-def remap_records(lines, records, *, start, duration_seconds, seed):
+def remap_records(lines, records, *, start, duration_seconds, seed,
+                  unpaced=frozenset()):
     """Return ``(new_lines, new_records, RemapReport)``.
 
     Args:
@@ -181,6 +201,18 @@ def remap_records(lines, records, *, start, duration_seconds, seed):
             is the one written into every line.
         duration_seconds: how long the rewritten log should span.
         seed: fixes both the session starts and the within-session pacing.
+
+        unpaced: client addresses whose captured spacing is already truthful
+            and must be kept. Everything else here is compressed on purpose --
+            `runner.py` divides every operator pause by the scenario's pace
+            factor, so the capture is deliberately faster than the story it
+            tells and the gaps have to be redrawn. Tool runs are not paced at
+            all: `toolruns.py` launches dirb and dirb goes at dirb's speed.
+            Redrawing those replaced a measurement with a model, and the model
+            was a human's thinking time -- measured on a real build, dirb's 961
+            requests took 9 seconds in the capture and 11,533 in the log that
+            shipped. Whoever calls this knows which of its sources it paced;
+            this module cannot tell from a truth record.
 
     Raises:
         ValueError: if the counts disagree, or if any record names a different
@@ -271,7 +303,16 @@ def remap_records(lines, records, *, start, duration_seconds, seed):
             drawn = earliest
             pushed += 1
         clock = drawn
+        # A source nobody paced was already telling the truth about its own
+        # speed, so the capture's own offsets are carried over rather than
+        # redrawn. Anchored to the drawn start like everything else -- what is
+        # preserved is the shape of the burst, not when it happened.
+        captured = _offsets(matches, indices) if ip in unpaced else None
         for position, index in enumerate(indices):
+            if captured is not None:
+                when_at[index] = drawn + timedelta(seconds=captured[position])
+                clock = when_at[index]
+                continue
             if position:
                 clock = clock + timedelta(
                     seconds=_gap(rng, records[index].get("category")))
@@ -321,7 +362,7 @@ def _span_of(stamps):
 
 
 def remap_files(log_path, truth_path, out_log, out_truth, *,
-                start, duration_seconds, seed):
+                start, duration_seconds, seed, unpaced=frozenset()):
     """Remap a log and its truth file on disk, header preserved.
 
     The whole log is held in memory: the sort is global, so there is no
@@ -338,7 +379,7 @@ def remap_files(log_path, truth_path, out_log, out_truth, *,
     header, records = read_truth(truth_path)
     new_lines, new_records, report = remap_records(
         lines, list(records), start=start,
-        duration_seconds=duration_seconds, seed=seed)
+        duration_seconds=duration_seconds, seed=seed, unpaced=unpaced)
 
     out_log.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     with open(out_truth, "w", encoding="utf-8") as fh:

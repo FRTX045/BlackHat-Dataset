@@ -28,9 +28,10 @@ from pathlib import Path
 sys.path.insert(0, "/opt/logforge")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from campaigns import (by_name, campaign_seed,  # noqa: E402
-                       campaign_steps)
-from playbooks import WEBSHELL_BODY  # noqa: E402
+from campaigns import (by_name, campaign_plan,  # noqa: E402
+                       campaign_seed)
+from playbooks import WEBSHELL_BODY, Outcome  # noqa: E402
+from shared.clients.useragents import CORPUS  # noqa: E402
 from shared.truth.ids import new_request_id  # noqa: E402
 
 #: Resolved by Docker's DNS to whichever of the server's three addresses is on
@@ -44,13 +45,67 @@ from shared.truth.ids import new_request_id  # noqa: E402
 HOST, PORT = "web", 80
 ACTOR_PREFIX = "attacker"
 
-#: What the operator's client announces itself as. Deliberately a plain, dated
-#: browser string rather than a scanner banner: hand-written attacks should not
-#: be separable from ordinary traffic by user agent alone.
-USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+#: Which class each agent in the shared corpus belongs to, so an operator can
+#: behave like the client it claims to be.
+_AGENT_CLASS = {agent: cls for agent, cls, _ in CORPUS}
+
+#: The mix of clients hand-written attacks arrive through, and it is not the
+#: mix ordinary traffic arrives through. The corpus weights describe the open
+#: web, where current Chrome is most of everything; drawing attackers on those
+#: weights gave a whole build five browser operators and no library at all.
+#: `useragents.py` states the real shape beside the `attacker` persona: real
+#: opportunistic work is dominated by libraries and stale browser strings.
+_ATTACKER_CLIENTS = (("library", 60), ("desktop_chrome", 27),
+                     ("desktop_firefox", 13))
+
+_BY_CLASS = {
+    name: ([ua for ua, cls, _ in CORPUS if cls == name],
+           [w for _, cls, w in CORPUS if cls == name])
+    for name, _ in _ATTACKER_CLIENTS}
+
+#: The site these attacks are aimed at, for the Referer of a client that sends
+#: one. Matches the Host header, because a browser's referrer is a real URL on
+#: the site the reader was already looking at.
+SITE = "http://shop.test"
+
+
+def operator_agent(campaign_name, seed):
+    """The client one operator runs its whole campaign through.
+
+    Drawn from the corpus the ordinary traffic uses, through the `attacker`
+    persona -- plain browser strings and libraries, never a scanner banner.
+    Six unrelated operators presenting one hardcoded string is not something a
+    real log contains, and a banner that names a tool would make hand-written
+    attacks separable by user agent alone, which is the one thing the original
+    hardcoded string was chosen to avoid.
+
+    Returns the agent and whether it sends a `Referer`. That follows from what
+    the client *is*: someone proxying a real browser leaves a click chain
+    behind them and someone driving a library does not. It is one of the few
+    things in an access log that tells the two apart, and answering it the
+    same way for everybody throws the distinction away.
+    """
+    rng = random.Random(campaign_seed(campaign_name, seed))
+    kind = rng.choices([name for name, _ in _ATTACKER_CLIENTS],
+                       weights=[w for _, w in _ATTACKER_CLIENTS], k=1)[0]
+    agents, weights = _BY_CLASS[kind]
+    agent = rng.choices(agents, weights=weights, k=1)[0]
+    return agent, kind != "library"
 
 _BOUNDARY = "----LogForgeBoundary7f3a1c2e"
+
+#: How much of a response the operator keeps to decide what to send next.
+#: Every success marker in `app/VULNERABILITIES.md` is near the top of the
+#: page -- an injected username in the first product card, `root:` on the
+#: first line of /etc/passwd, `uid=` inside the first <pre>. Holding whole
+#: pages for a campaign's worth of requests would buy none of them.
+#:
+#: 16K rather than 8K, and the difference was measured rather than guessed: an
+#: ordinary search page is 8150 bytes uncompressed, which left 42 bytes of
+#: headroom under an 8K cap. The marker sat inside it, but a slightly wordier
+#: page would have truncated the evidence and the operator would have read its
+#: own success as a failure.
+BODY_PREFIX = 16384
 
 
 def _multipart(filename):
@@ -68,11 +123,18 @@ def _multipart(filename):
 class Operator:
     """One attacker: one connection source, one cookie jar, one ledger."""
 
-    def __init__(self, campaign, ledger, pace, rng):
+    def __init__(self, campaign, ledger, pace, rng, agent=None,
+                 sends_referer=False):
         self.campaign = campaign
         self.ledger = ledger
         self.pace = max(pace, 1.0)
         self.rng = rng
+        self.agent = agent or operator_agent(campaign.name, 7)[0]
+        self.sends_referer = sends_referer
+        #: Where this client was last, for the Referer of the next request.
+        #: Only ever a path it actually asked for, so the chain a browser
+        #: leaves is one it really walked.
+        self.came_from = None
         self.cookies = {}
         self.source_ip = None
         self.issued = 0
@@ -95,9 +157,11 @@ class Operator:
     def send(self, step):
         request_id = new_request_id()
         headers = {"Host": "shop.test",
-                   "User-Agent": USER_AGENT,
+                   "User-Agent": self.agent,
                    "X-Request-Id": request_id,
                    "Connection": "close"}
+        if self.sends_referer and self.came_from:
+            headers["Referer"] = SITE + self.came_from
 
         body = step.body
         if body and body.startswith("@upload:"):
@@ -119,11 +183,16 @@ class Operator:
             if self.source_ip is None:
                 self.source_ip = connection.sock.getsockname()[0]
 
+            started = time.monotonic()
             connection.request(step.method, step.path, body=body,
                                headers=headers)
             response = connection.getresponse()
             self._remember(response)
-            response.read()
+            # Decoded leniently: a traversal that lands reads a system file,
+            # not a UTF-8 page, and the operator still has to read what of it
+            # came back rather than falling over on it.
+            seen = response.read(BODY_PREFIX).decode("utf-8", "replace")
+            elapsed = time.monotonic() - started
             status = response.status
         except OSError as exc:
             # A request that never reached the server is not an attack that
@@ -137,7 +206,7 @@ class Operator:
                     f"be addressed by service name, not by its lab_res address."
                 ) from exc
             self.failures += 1
-            status = None
+            status, seen, elapsed = None, "", 0.0
         else:
             self.reached = True
         finally:
@@ -157,13 +226,22 @@ class Operator:
             "instance_id": None,
             "activity": step.activity,
             "campaign": self.campaign.name,
-            "succeeds": self.campaign.succeeds,
+            # What we predicted this campaign would manage. A prediction and
+            # nothing more -- `achieved` below is what the run actually got,
+            # stamped once the run is over and the answer is known.
+            "expects": self.campaign.expects,
+            "objective": self.campaign.objective,
+            "achieved": None,
             "note": step.note,
             "status": status,
         }, separators=(",", ":")) + "\n")
         self.ledger.flush()
         self.issued += 1
-        return status
+        self.came_from = step.path
+        # Back to the playbook that asked for it. A step's successor is chosen
+        # from this and nothing else, which is what keeps one campaign's branch
+        # independent of what the others did to the application.
+        return Outcome(status, seen, elapsed)
 
 
 def campaign_rng(name, seed):
@@ -179,33 +257,50 @@ def campaign_rng(name, seed):
 def run_campaign(name, ledger_path, pace, seed):
     campaign = by_name(name)
     rng = campaign_rng(name, seed)
-    steps = campaign_steps(campaign, rng)
+    plan = campaign_plan(campaign, rng)
 
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    learned = frozenset()
+    agent, sends_referer = operator_agent(name, seed)
     with open(ledger_path, "w", encoding="utf-8") as fh:
-        operator = Operator(campaign, fh, pace, rng)
-        for step in steps:
+        operator = Operator(campaign, fh, pace, rng, agent, sends_referer)
+        # No list of steps: what the operator sends next depends on what the
+        # last request returned, so the plan is walked one answer at a time.
+        reply = None
+        while True:
+            try:
+                step = plan.send(reply)
+            except StopIteration as stop:
+                learned = stop.value or frozenset()
+                break
             # The pauses are what make this look like a person rather than a
             # script, divided by the pace factor so a small tier does not take
             # the hour the timings describe.
             time.sleep(min(step.think / operator.pace, 5.0))
-            operator.send(step)
+            reply = operator.send(step)
 
     # Episodes are stamped in a second pass. The source address comes from the
     # socket rather than from configuration, so it is not known until the first
     # request has gone out -- and rewriting a few hundred lines is cheaper than
     # guessing the address up front and being wrong about it.
-    _stamp_episodes(ledger_path)
+    _stamp_episodes(ledger_path, sorted(learned))
     print(f"{name}: issued {operator.issued} requests from "
-          f"{operator.source_ip} ({operator.failures} did not complete)")
+          f"{operator.source_ip} ({operator.failures} did not complete); "
+          f"expected {'to get somewhere' if campaign.expects else 'nothing'}, "
+          f"achieved {', '.join(sorted(learned)) or 'nothing'}")
     return operator.issued
 
 
-def _stamp_episodes(path):
-    """Assign contiguous per-client episode ids to a finished ledger.
+def _stamp_episodes(path, achieved):
+    """Assign episode ids, and record what the run turned out to achieve.
 
     Grouped by activity, in the order the requests were issued -- which is the
     order they reach the log, because one operator makes one request at a time.
+
+    `achieved` is stamped in the same pass because it is not knowable until the
+    campaign has finished: whether an operator got anywhere is the outcome of
+    the run, not a property of its definition, and writing the definition into
+    every line is how a dataset comes to claim exploits that never happened.
     """
     records = [json.loads(line) for line in
                path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -217,6 +312,7 @@ def _stamp_episodes(path):
             sequence += 1
             current = record["activity"]
         record["instance_id"] = f"{record['client_ip']}#{sequence}"
+        record["achieved"] = achieved
         out.append(json.dumps(record, separators=(",", ":")))
     path.write_text("\n".join(out) + "\n", encoding="utf-8")
 

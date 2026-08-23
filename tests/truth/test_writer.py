@@ -17,7 +17,7 @@ class TestTruthWriterHeader(unittest.TestCase):
         fh = io.StringIO()
         TruthWriter(fh, **HDR)
         header = json.loads(fh.getvalue().splitlines()[0])
-        self.assertEqual(header["kind"], "weblog-truth")
+        self.assertEqual(header["kind"], "logarc-truth")
         self.assertEqual(header["version"], 1)
         self.assertEqual(header["granularity"], "category")
         self.assertEqual(header["seed"], 7)

@@ -16,7 +16,7 @@
 # is around 1 GB. Stated rather than hidden; there is no streaming version of
 # a global sort.
 
-kind = "weblog-truth"
+kind = "logarc-truth"
 seed = 31
 
 target_lines = 1000000
@@ -63,7 +63,14 @@ scanner = 0.12
 campaigns = [
     "patient_operator", "webshell_operator", "blind_injector",
     "metadata_hunter", "credential_hunter", "fruitless_prober",
+    "cms_bot", "cve_sweeper", "greedy_scraper", "api_abuser",
 ]
+# Operators the draw may not leave out. Each is the only source of a category
+# the coverage floor below asks for -- metadata_hunter of ssrf, blind_injector
+# of path_traversal, credential_hunter of credential_attack. Everyone else
+# varies. Measured: a draw without metadata_hunter took ssrf from five lines to
+# zero, which is not a smaller dataset but a differently-shaped one.
+required = ["metadata_hunter", "blind_injector", "credential_hunter"]
 # Slowest of the three tiers: closest to the pace the playbooks actually
 # describe, so the phases spread furthest through the ordinary traffic.
 pace = 4.0
@@ -71,3 +78,21 @@ pace = 4.0
 # The full wordlist, as the medium tier uses. A month has room for it.
 tools = ["whatweb-root", "dirb-common", "gobuster-common", "nmap-http",
          "sqlmap-search"]
+
+# What this tier has to contain to be worth shipping. Campaigns are reactive,
+# so what they achieve depends on what the application gives up -- a build that
+# comes in under this refuses rather than quietly publishing a tier with no
+# exploitation in it. Answer a shortfall by changing the roster, never by
+# re-rolling the seed until it passes.
+[attacks.coverage]
+exploitation = 1
+injection = 5
+access_control = 5
+credential_attack = 5
+# One is enough for these two: it is the *appearance* of a class that must be
+# guaranteed, not how much of it there is. A real day at a small shop may
+# genuinely hold a single traversal attempt, and manufacturing twenty to make
+# a per-class score stable would be choosing the measurement. Per-class scoring
+# at these supports is unreliable; the larger tiers are where it means anything.
+ssrf = 1
+path_traversal = 1

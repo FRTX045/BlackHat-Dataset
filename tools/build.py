@@ -13,6 +13,9 @@ Standard library only, by project rule -- argparse, tomllib, subprocess, json,
 pathlib, datetime and nothing else.
 """
 
+import collections
+import random
+import zlib
 import argparse
 import json
 import shutil
@@ -251,6 +254,75 @@ def tools_that_reached_nothing(records):
     return [r["run"] for r in records if not r["requests"]]
 
 
+#: Never fewer operators than this, however the draw falls. A tier with one
+#: attacker in it is not a weaker dataset, it is a different one.
+MIN_CAMPAIGNS = 3
+
+
+def chosen_campaigns(roster, seed, required=()):
+    """Which of the declared operators actually turn up in this build.
+
+    How many people are attacking a server varies week to week. Running the
+    same cast every time makes the attacker population a constant, which is
+    the one thing it certainly is not in a real log -- and a consumer who
+    learns that population has learned this dataset rather than the web.
+
+    Drawn from the scenario seed, so the choice reproduces. Chosen *from* the
+    roster rather than invented, because compose declares every service up
+    front: a build can decline to start an attacker, never conjure one. Only
+    the chosen subset is launched, so the rule that a source which reached the
+    server zero times must not be recorded as having run still holds.
+
+    `required` names operators the draw may not leave out, because they are the
+    only source of some category the scenario asks for. Measured: a draw that
+    dropped `metadata_hunter` took `ssrf` from five lines to zero and
+    `path_traversal` to one, and per-category scores at those supports are
+    noise. How many attackers turn up may vary; whether a whole class of attack
+    exists in the dataset may not.
+
+    Note what this does *not* do: it fixes the cast, never the outcome. What a
+    required operator achieves is still whatever the application gives it.
+    """
+    roster = sorted(roster)
+    missing = sorted(set(required) - set(roster))
+    if missing:
+        raise BuildError(
+            f"campaign(s) {', '.join(missing)} are required for coverage but "
+            f"are not in the scenario's roster; a scenario cannot guarantee a "
+            f"category from an operator it never declared")
+    if len(roster) <= MIN_CAMPAIGNS:
+        return roster
+    # crc32 rather than hash(): str hashing is salted per process and nothing
+    # here sets PYTHONHASHSEED. This repository has already shipped that bug
+    # once; see "On reproducibility" in docs/methodology.md.
+    rng = random.Random(seed ^ zlib.crc32(b"campaign-roster"))
+    count = rng.randint(max(MIN_CAMPAIGNS, len(roster) // 2), len(roster))
+    optional = [name for name in roster if name not in set(required)]
+    drawn = set(required) | set(
+        rng.sample(optional, max(count - len(set(required)), 0)))
+    return sorted(drawn)
+
+
+def categories_below_floor(counts, floor):
+    """Categories a scenario asked for that the run did not actually produce.
+
+    What a campaign achieves is decided by what the application gives up, not
+    by what the campaign declared, which is the honest arrangement and has a
+    consequence: on an unlucky seed a tier can finish with no exploitation in
+    it at all. That is a true dataset and a useless one, and the difference
+    has to be caught here rather than by whoever downloads it.
+
+    Reported in full rather than first-one-wins, so a build tells you
+    everything it is short of in one go. **Do not answer a shortfall by
+    re-rolling the seed until it passes** -- that is choosing the measurement,
+    which is the thing this repository exists not to do. Change the roster, or
+    write the shortfall down.
+    """
+    return [(name, wanted, counts.get(name, 0))
+            for name, wanted in sorted(floor.items())
+            if counts.get(name, 0) < wanted]
+
+
 def audit_block(findings):
     """The fake-log audit, as the manifest records it.
 
@@ -424,14 +496,20 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         """
         import concurrent.futures
 
-        campaigns = scenario.get("attacks", {}).get("campaigns", [])
-        if not campaigns:
+        declared = scenario.get("attacks", {}).get("campaigns", [])
+        if not declared:
             return
+        # Not all of them, and not the same ones every time -- but never
+        # without the ones that are the only source of a required category.
+        campaigns = chosen_campaigns(
+            declared, scenario["seed"],
+            required=scenario.get("attacks", {}).get("required", ()))
 
         sys.path.insert(0, str(project_dir / "attacks"))
-        from campaigns import by_name  # noqa: PLC0415 - per-project module
+        from campaigns import by_name, succeeded  # noqa: PLC0415
         state["campaign_outcomes"] = [
-            {"name": name, "succeeds": by_name(name).succeeds,
+            {"name": name, "expects": by_name(name).expects,
+             "objective": by_name(name).objective,
              "phases": list(by_name(name).phases)}
             for name in campaigns]
         pace = scenario.get("attacks", {}).get("pace", 20.0)
@@ -672,6 +750,27 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
                 "the truth file does not describe the log it ships with:\n  "
                 + "\n  ".join(errors[:20]))
 
+        floor = scenario.get("attacks", {}).get("coverage", {})
+        # Read again rather than reusing `records`: `read_truth` streams, and
+        # `validate_records` above has already walked it to the end. Counting
+        # an exhausted iterator reports zero of everything, which reads
+        # exactly like a run that achieved nothing.
+        _, counted = read_truth(out / "truth.jsonl")
+        counts = collections.Counter(r["category"] for r in counted)
+        short = categories_below_floor(counts, floor)
+        state["coverage"] = {"floor": dict(floor),
+                             "achieved": {name: counts.get(name, 0)
+                                          for name in floor}}
+        if short:
+            missing = "\n  ".join(
+                f"{name}: wanted {wanted}, got {got}"
+                for name, wanted, got in short)
+            raise BuildError(
+                f"this run did not reach the coverage {tier} declares. The "
+                f"campaigns are reactive, so what they achieve depends on "
+                f"what the application gave up -- and this time it gave up "
+                f"less than the scenario needs:\n  {missing}")
+
     def write_sample():
         """A committed slice of the dataset, for eyeballing without a download.
 
@@ -714,6 +813,10 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             campaigns=state["manifest"].get("campaigns", []))
 
     def manifest():
+        sys.path.insert(0, str(project_dir / "attacks"))
+        from campaigns import (achievements,  # noqa: PLC0415
+                       succeeded as _succeeded)
+
         finished_at = datetime.now(timezone.utc)
         state["manifest"] = build_manifest(
             project=project, tier=tier, scenario=scenario,
@@ -727,6 +830,26 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             campaigns=state.get("campaign_outcomes", []),
             remap=state.get("remap"), tells=state.get("tells", ()),
             browser=state.get("browser") or {})
+        # What this run was asked to contain and what it actually contained.
+        # Published rather than merely enforced: a consumer should be able to
+        # see the floor a tier was held to without reading the scenario, and
+        # see how much room there was above it.
+        if state.get("coverage"):
+            state["manifest"]["coverage"] = state["coverage"]
+        # Which operators turned up, and what each came away with. `expects` is
+        # the prediction the campaign was written with; `achieved` is what the
+        # run observed, and they are allowed to disagree.
+        for entry in state["manifest"].get("campaigns", []):
+            ledger = ledgers / f"attack-{entry['name']}.jsonl"
+            if not ledger.exists():
+                continue
+            first = ledger.read_text(encoding="utf-8").splitlines()[:1]
+            if first:
+                facts = json.loads(first[0]).get("achieved") or []
+                entry["achieved"] = achievements(facts)
+                # Not "achieved anything": a run that ends holding only
+                # `locked_out` learned something and succeeded at nothing.
+                entry["succeeded"] = _succeeded(facts)
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 

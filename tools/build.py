@@ -622,7 +622,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             dict(scenario=f"{project}-{tier}", seed=scenario["seed"],
                  source_file_id="access.log",
                  generated_at=started_at.isoformat(),
-                 kind=scenario.get("kind", "weblog-truth")),
+                 kind=scenario.get("kind", "logarc-truth")),
             labeller=categorise, address_fallback=address_fallback)
 
     def remap_clock():

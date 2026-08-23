@@ -1,6 +1,6 @@
 # The fast-iteration tier: a day of shop traffic, built in a few minutes.
 
-kind = "weblog-truth"
+kind = "logarc-truth"
 seed = 7
 
 # Top-level, and they must stay above the first [table] header or TOML makes

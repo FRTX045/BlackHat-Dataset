@@ -1,4 +1,4 @@
-"""Streaming reader for a `weblog-truth` JSON Lines file.
+"""Streaming reader for a `logarc-truth` JSON Lines file.
 
 Returns the header eagerly (it is one line and every caller needs it) and the
 records lazily, so a ten-million-line truth file can be walked without being

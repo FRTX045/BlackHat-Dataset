@@ -8,7 +8,7 @@
 # clock, so the numbers below are about 6,000 sessions, a quarter of a million
 # lines, and somewhere near fifteen minutes of building.
 
-kind = "weblog-truth"
+kind = "logarc-truth"
 seed = 19
 
 # Top-level: above the first [table] header, or TOML makes them keys of it.

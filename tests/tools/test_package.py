@@ -30,12 +30,12 @@ def a_dataset(*, remapped=True, extra=()):
     (path / "access.apache.log").write_text("line one\nline two\nline three\n")
     (path / "access.tagged.log").write_text("id line one\n")
     (path / "error.log").write_text("[error] something\n")
-    (path / "truth.jsonl").write_text('{"kind":"weblog-truth"}\n')
+    (path / "truth.jsonl").write_text('{"kind":"logarc-truth"}\n')
     (path / "sample.log").write_text("line two\n")
-    (path / "sample.truth.jsonl").write_text('{"kind":"weblog-truth"}\n')
+    (path / "sample.truth.jsonl").write_text('{"kind":"logarc-truth"}\n')
     if remapped:
         (path / "access.raw.log").write_text("raw one\nraw two\nraw three\n")
-        (path / "truth.raw.jsonl").write_text('{"kind":"weblog-truth"}\n')
+        (path / "truth.raw.jsonl").write_text('{"kind":"logarc-truth"}\n')
     for name in extra:
         (path / name).write_text("x\n")
     return path

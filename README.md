@@ -108,7 +108,7 @@ repository runs one command and gets the dataset. Releases are a convenience.
 JSON Lines. One header line, then exactly one record per log line, in order.
 
 ```json
-{"kind":"weblog-truth","version":1,"scenario":"apache-shopfront-small","seed":7,"source_file_id":"access.log","granularity":"category","generated_at":"2026-08-16T09:00:00+00:00"}
+{"kind":"logarc-truth","version":1,"scenario":"apache-shopfront-small","seed":7,"source_file_id":"access.log","granularity":"category","generated_at":"2026-08-16T09:00:00+00:00"}
 {"line_no":1,"client_ip":"203.0.113.5","category":"browsing","instance_id":"203.0.113.5#17"}
 {"line_no":2,"client_ip":"198.51.100.9","category":"enumeration","instance_id":"198.51.100.9#2"}
 ```

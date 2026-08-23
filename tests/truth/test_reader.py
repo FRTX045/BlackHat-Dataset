@@ -30,7 +30,7 @@ class TestReadTruth(unittest.TestCase):
     def test_round_trips_what_the_writer_produced(self):
         write_sample(self.path)
         header, records = read_truth(self.path)
-        self.assertEqual(header["kind"], "weblog-truth")
+        self.assertEqual(header["kind"], "logarc-truth")
         self.assertEqual(header["seed"], 7)
         recs = list(records)
         self.assertEqual(len(recs), 3)
@@ -49,7 +49,7 @@ class TestReadTruth(unittest.TestCase):
         w.write(client_ip="203.0.113.5", category="browsing", instance_id="a#1")
         buf.seek(0)
         header, records = read_truth(buf)
-        self.assertEqual(header["kind"], "weblog-truth")
+        self.assertEqual(header["kind"], "logarc-truth")
         self.assertEqual(len(list(records)), 1)
 
     def test_rejects_an_empty_file(self):
@@ -63,7 +63,7 @@ class TestReadTruth(unittest.TestCase):
             read_truth(self.path)
 
     def test_rejects_a_header_missing_required_fields(self):
-        self.path.write_text('{"kind":"weblog-truth"}\n', encoding="utf-8")
+        self.path.write_text('{"kind":"logarc-truth"}\n', encoding="utf-8")
         with self.assertRaises(TruthFormatError):
             read_truth(self.path)
 
@@ -72,7 +72,7 @@ class TestReadTruth(unittest.TestCase):
         # not one of ours, and trusting it would reintroduce the disagreement
         # the format exists to avoid.
         self.path.write_text(
-            '{"kind":"weblog-truth","version":1,"scenario":"s","seed":1,'
+            '{"kind":"logarc-truth","version":1,"scenario":"s","seed":1,'
             '"source_file_id":"access.log","granularity":"category",'
             '"generated_at":"2026-08-16T09:00:00+00:00","total":5}\n',
             encoding="utf-8")

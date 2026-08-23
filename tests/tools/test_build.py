@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 8, 16, 9, 0, tzinfo=timezone.utc)
 
 SMALL_TOML = """
-kind = "weblog-truth"
+kind = "logarc-truth"
 seed = 7
 target_lines = 50000
 duration_seconds = 600
@@ -44,7 +44,7 @@ class TestScenario(unittest.TestCase):
     def test_reads_the_fields_the_build_depends_on(self):
         scenario = load_scenario(self.path)
         self.assertEqual(scenario["seed"], 7)
-        self.assertEqual(scenario["kind"], "weblog-truth")
+        self.assertEqual(scenario["kind"], "logarc-truth")
         self.assertEqual(scenario["personas"]["crawler"], 0.2)
 
     def test_a_scenario_without_a_seed_is_refused(self):

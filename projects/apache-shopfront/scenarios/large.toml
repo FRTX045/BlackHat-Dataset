@@ -16,7 +16,7 @@
 # is around 1 GB. Stated rather than hidden; there is no streaming version of
 # a global sort.
 
-kind = "weblog-truth"
+kind = "logarc-truth"
 seed = 31
 
 target_lines = 1000000

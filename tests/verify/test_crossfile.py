@@ -31,7 +31,7 @@ def parse_ip(log_line):
 
 
 def truth_file(records, source="access.log"):
-    header = {"kind": "weblog-truth", "version": 1, "scenario": "x",
+    header = {"kind": "logarc-truth", "version": 1, "scenario": "x",
               "seed": 7, "source_file_id": source, "granularity": "category",
               "generated_at": "2026-03-09T00:00:00+00:00"}
     return "\n".join([json.dumps(header)] + [json.dumps(r) for r in records]) + "\n"

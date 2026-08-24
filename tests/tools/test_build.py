@@ -15,7 +15,8 @@ from pathlib import Path
 from shared.timeline.remap import RemapReport
 from tools.build import (BuildError, categories_below_floor,
                          chosen_campaigns, dataset_dir, load_scenario,
-                         run_steps, timestamp_block, validate_tier)
+                         run_steps, seeded, timestamp_block,
+                         validate_tier)
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -98,6 +99,66 @@ class TestDatasetDirectory(unittest.TestCase):
         path = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW)
         self.assertEqual(
             path, Path("/repo/datasets/apache-shopfront/2026-08-16-small"))
+
+
+
+class TestBuildingOneScenarioAtSeveralSeeds(unittest.TestCase):
+    """A sweep is how a finding stops being one draw.
+
+    A single build says what happened once. Whether a category the tool never
+    predicted is a rule gap or an unlucky cast is not answerable from it, and
+    the roster is drawn from the seed -- so the way to tell them apart is to
+    build the same scenario several times and see what holds. That needs the
+    seed to be settable without editing a tracked config in a loop.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.path = self.dir / "small.toml"
+        self.path.write_text(SMALL_TOML)
+
+    def test_the_scenarios_seed_is_what_a_plain_build_uses(self):
+        # The override is an override. With no flag the file still decides,
+        # which is what makes a published dataset rebuildable from its
+        # scenario alone.
+        self.assertEqual(seeded(load_scenario(self.path), None)["seed"], 7)
+
+    def test_an_override_replaces_it(self):
+        self.assertEqual(seeded(load_scenario(self.path), 13)["seed"], 13)
+
+    def test_overriding_does_not_edit_the_scenario_file(self):
+        # The alternative to this flag was rewriting `seed = N` in the toml
+        # before each build. An interrupted sweep would leave a tracked file
+        # holding a seed nobody chose.
+        seeded(load_scenario(self.path), 13)
+        self.assertEqual(load_scenario(self.path)["seed"], 7)
+
+    def test_seed_zero_is_an_override_like_any_other(self):
+        # `if seed:` would silently fall back to the scenario here.
+        self.assertEqual(seeded(load_scenario(self.path), 0)["seed"], 0)
+
+    def test_two_seeds_of_one_tier_do_not_land_in_one_directory(self):
+        # Every build of a tier on a given day named one directory. A sweep
+        # of eight would have been eight builds overwriting one dataset, and
+        # the only sign of it is a manifest whose seed is not the one asked
+        # for -- which nobody reads until the numbers are already published.
+        first = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW,
+                            seed=13)
+        second = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW,
+                             seed=19)
+        self.assertNotEqual(first, second)
+
+    def test_the_directory_says_which_seed_built_it(self):
+        path = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW,
+                           seed=13)
+        self.assertIn("13", path.name)
+
+    def test_a_build_at_the_scenarios_own_seed_is_named_as_it_always_was(self):
+        # Naming is a published contract: `docs/` and the three shipped
+        # datasets all carry `<date>-<tier>`. Only a sweep needs the suffix.
+        self.assertEqual(
+            dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW),
+            Path("/repo/datasets/apache-shopfront/2026-08-16-small"))
 
 
 class TestTheShippedScenarios(unittest.TestCase):

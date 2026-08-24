@@ -86,8 +86,39 @@ def load_scenario(path):
     return data
 
 
-def dataset_dir(repo, project, tier, now):
-    return Path(repo) / "datasets" / project / f"{now:%Y-%m-%d}-{tier}"
+def seeded(scenario, seed):
+    """The scenario as the build should read it, with `seed` overriding.
+
+    `seed is None` means no override, so the file decides -- which is what
+    keeps a published dataset rebuildable from its scenario alone. Written as
+    an explicit None check rather than a truth test because 0 is a seed like
+    any other, and `if seed:` would quietly hand a build the scenario's seed
+    while its manifest claimed zero.
+
+    Returns a copy. Mutating the loaded scenario would be harmless here, but
+    the alternative this flag replaced -- rewriting `seed = N` in the toml
+    before each build -- is exactly the failure mode worth staying away from:
+    an interrupted sweep leaving a tracked file holding a seed nobody chose.
+    """
+    if seed is None:
+        return scenario
+    return {**scenario, "seed": seed}
+
+
+def dataset_dir(repo, project, tier, now, seed=None):
+    """Where a build writes. One directory per project, date and tier.
+
+    A seed sweep breaks that: eight builds of one tier on one day all named
+    the same directory and would have overwritten each other, leaving nothing
+    behind but a manifest whose seed is not the one that was asked for. So a
+    build at an overridden seed says so in the name. A build at the
+    scenario's own seed keeps the name it has always had, because that one is
+    a published contract -- the three shipped datasets carry it.
+    """
+    name = f"{now:%Y-%m-%d}-{tier}"
+    if seed is not None:
+        name += f"-s{seed}"
+    return Path(repo) / "datasets" / project / name
 
 
 def run_steps(steps, teardown):
@@ -430,7 +461,8 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
     }
 
 
-def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
+def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
+              seed=None):
     validate_tier(tier)
     started_at = now or datetime.now(timezone.utc)
 
@@ -439,7 +471,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         raise BuildError(f"no project at {project_dir}")
 
     scenario_path = project_dir / "scenarios" / f"{tier}.toml"
-    scenario = load_scenario(scenario_path)
+    scenario = seeded(load_scenario(scenario_path), seed)
 
     logs = project_dir / "server" / "logs"
     ledgers = project_dir / "traffic" / "ledger"
@@ -452,7 +484,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
     #: address, which is what makes labelling by it exact rather than a guess.
     address_fallback = {"203.0.113.6": "reconnaissance"}
 
-    out = dataset_dir(repo, project, tier, started_at)
+    out = dataset_dir(repo, project, tier, started_at, seed)
     out.mkdir(parents=True, exist_ok=True)
 
     stack = Stack(project_dir / "docker-compose.yml", runner)
@@ -882,10 +914,16 @@ def main(argv=None):
     parser.add_argument("project")
     parser.add_argument("tier", choices=TIERS,
                         help=f"one of {', '.join(TIERS)}")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="build at this seed instead of the scenario's, "
+                             "into a directory named for it. For sweeping one "
+                             "scenario across seeds: a single build cannot "
+                             "say whether what it found is a property of the "
+                             "data or of the cast that seed drew.")
     args = parser.parse_args(argv)
 
     try:
-        out, manifest = run_build(args.project, args.tier)
+        out, manifest = run_build(args.project, args.tier, seed=args.seed)
     except BuildError as exc:
         print(f"build failed: {exc}", file=sys.stderr)
         return 1

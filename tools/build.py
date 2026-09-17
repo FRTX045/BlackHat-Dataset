@@ -311,7 +311,7 @@ def timestamp_block(remap):
 def build_manifest(*, project, tier, scenario, scenario_path, started_at,
                    finished_at, report, agreement, truth_errors, repo,
                    base_image_digest, tool_runs, campaigns=(), remap=None,
-                   tells=(), browser=None, source=None):
+                   tells=(), browser=None, source=None, admins=None):
     """Assemble the record of how this dataset came to exist."""
     return {
         "kind": "logforge-manifest",
@@ -347,6 +347,9 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         # Empty when no headless browser ran, which is a fact about the build
         # and is stated in the dataset README rather than left to inference.
         "browser": browser,
+        # The shop's own staff. Named here, beside the attack campaigns, so a
+        # reader can see that benign admin traffic was deliberate.
+        "admins": admins or {},
         "derived_vs_apache_combined": {
             # Named explicitly: once timestamps are remapped this check runs
             # against the capture, not the shipped log. Comparing a rewritten
@@ -607,6 +610,28 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             for outcome in concurrent.futures.as_completed(jobs):
                 outcome.result()
 
+    def record_admins():
+        """What the shop's own staff did, named the way campaigns are named.
+
+        Recorded so a later reader can tell this traffic was deliberate rather
+        than a labelling slip. It exists because a downstream detection project
+        measured that every request to an admin path in this corpus came from
+        an attacker, which made a rule flagging `GET /admin -> 302` impossible
+        to falsify -- there were no innocent people in the admin area to
+        wrongly flag.
+        """
+        sys.path.insert(0, str(REPO))
+        from shared.clients.personas import (ADMIN_ADDRESSES,  # noqa: PLC0415
+                                             ADMIN_DESCRIPTION)
+        seen = _requests_by_source(driver_ledger)
+        state["admins"] = {
+            "addresses": list(ADMIN_ADDRESSES),
+            "description": ADMIN_DESCRIPTION,
+            "requests": {a: seen.get(a, 0) for a in ADMIN_ADDRESSES},
+            "categories": ["authentication", "browsing"],
+            "deliberately_not": "access_control",
+        }
+
     def collect():
         for name in ("access.tagged.log", "error.log"):
             shutil.copy2(logs / name, out / name)
@@ -741,7 +766,8 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             tool_runs=state.get("tool_runs", []),
             campaigns=state.get("campaign_outcomes", []),
             remap=state.get("remap"), tells=state.get("tells", ()),
-            browser=state.get("browser") or {}, source=source)
+            browser=state.get("browser") or {}, source=source,
+            admins=state.get("admins") or {})
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 
@@ -749,6 +775,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         ("bringing the stack up", bring_up),
         ("driving traffic and attacks together", drive_and_attack),
         ("adding background noise", make_noise),
+        ("recording the administrators", record_admins),
         ("collecting what Apache wrote", collect),
         ("joining the labels", label),
         ("putting the log on a realistic clock", remap_clock),
@@ -804,6 +831,12 @@ def main(argv=None):
             else "NOT REBUILDABLE"
         print(f"  source                   {str(source.get('commit'))[:12]} "
               f"+ uncommitted changes -- {shipped}")
+    admins = manifest.get("admins") or {}
+    if admins.get("requests"):
+        total = sum(admins["requests"].values())
+        print(f"  admin traffic            {total} requests from "
+              f"{len(admins['addresses'])} addresses "
+              f"({', '.join(admins['addresses'])})")
     fired = manifest["audit"]["fired"]
     print(f"  fake-log tells fired     {len(fired)}"
           + (f": {', '.join(fired)}" if fired else ""))

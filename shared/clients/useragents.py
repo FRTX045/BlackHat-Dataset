@@ -117,6 +117,8 @@ PERSONA_UA_CLASSES = {
     "mobile_user": ("mobile_ios", "mobile_android"),
     # Both, because a real site's crawl traffic is not only the search
     # engines: the SEO and AI crawlers are frequently the larger share.
+    # Staff use whatever the office puts in front of them.
+    "admin_browser": ("desktop_chrome", "desktop_firefox"),
     "crawler": ("bot_search", "bot_seo"),
     "feed_reader": ("feed_reader",),
     "uptime_monitor": ("uptime_monitor",),

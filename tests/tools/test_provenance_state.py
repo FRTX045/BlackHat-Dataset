@@ -152,5 +152,92 @@ class TestWhetherADatasetCanBeRebuilt(unittest.TestCase):
         self.assertTrue(problems)
 
 
+class TestABuildsOwnOutputIsNotASourceChange(unittest.TestCase):
+    """A previous build's dataset directory must not mark the next build dirty.
+
+    Caught on the first run of three tiers in sequence. small built from a
+    genuinely clean tree and recorded `commit_is_clean: True`. medium then ran
+    with `?? datasets/apache-shopfront/2026-09-17-small/` in the working tree --
+    the small build's own output, untracked because a dataset is added to git
+    after it is verified -- and recorded `commit_is_clean: False` with a
+    **zero-byte** uncommitted.patch whose sha256 is the hash of the empty
+    string.
+
+    That is worse than the defect it replaced. It reads as "here is the
+    difference that made this build" when there is no difference, and the thing
+    that actually differed is an untracked directory no patch can express
+    anyway. A provenance field that cries wolf teaches people to ignore it.
+
+    Build output is not source. Untracked files anywhere else still count,
+    because one of them really could change what a build produces.
+    """
+
+    def porcelain(self, *lines):
+        return fake_git({
+            "rev-parse HEAD": "d" * 40,
+            "status --porcelain": "\n".join(lines),
+            "diff HEAD": "",
+            "diff --stat HEAD": "",
+        })
+
+    def test_an_earlier_datasets_directory_leaves_the_tree_clean(self):
+        git = self.porcelain("?? datasets/apache-shopfront/2026-09-17-small/")
+        state, patch = source_state(Path("/repo"), git=git)
+        self.assertTrue(state["commit_is_clean"])
+        self.assertIsNone(patch)
+
+    def test_several_of_them_are_still_clean(self):
+        git = self.porcelain("?? datasets/apache-shopfront/2026-09-17-small/",
+                             "?? datasets/apache-shopfront/2026-09-17-medium/")
+        state, _ = source_state(Path("/repo"), git=git)
+        self.assertTrue(state["commit_is_clean"])
+
+    def test_it_still_records_that_the_outputs_were_there(self):
+        # Filtered, not hidden. Somebody reading the manifest should be able to
+        # see what was in the tree, and decide for themselves.
+        git = self.porcelain("?? datasets/apache-shopfront/2026-09-17-small/")
+        state, _ = source_state(Path("/repo"), git=git)
+        self.assertEqual(state["build_outputs_present"],
+                         ["datasets/apache-shopfront/2026-09-17-small/"])
+
+    def test_an_untracked_file_anywhere_else_still_counts(self):
+        # A stray module or scenario file genuinely could change what a build
+        # produces, and no patch can restore it either.
+        git = self.porcelain("?? shared/clients/experiment.py")
+        state, _ = source_state(Path("/repo"), git=git)
+        self.assertFalse(state["commit_is_clean"])
+        self.assertEqual(state["untracked_files"], ["shared/clients/experiment.py"])
+
+    def test_a_modified_tracked_file_still_counts_even_beside_outputs(self):
+        git = fake_git({
+            "rev-parse HEAD": "e" * 40,
+            "status --porcelain": (" M shared/clients/personas.py\n"
+                                   "?? datasets/apache-shopfront/2026-09-17-small/"),
+            "diff HEAD": PATCH,
+            "diff --stat HEAD": STAT,
+        })
+        state, patch = source_state(Path("/repo"), git=git)
+        self.assertFalse(state["commit_is_clean"])
+        self.assertEqual(patch, PATCH)
+        self.assertTrue(state["patch_shipped"])
+
+    def test_an_empty_diff_is_never_shipped_as_a_patch(self):
+        # The specific thing that shipped: patch_shipped True beside a
+        # zero-byte file and the sha256 of nothing.
+        git = self.porcelain("?? shared/clients/experiment.py")
+        state, patch = source_state(Path("/repo"), git=git)
+        self.assertIsNone(patch)
+        self.assertFalse(state.get("patch_shipped"))
+        self.assertIn("no tracked file", state.get("patch_omitted_because", ""))
+
+    def test_a_dirty_build_with_only_untracked_source_is_not_rebuildable(self):
+        # Correct, and it should say so rather than pretend a patch fixes it.
+        git = self.porcelain("?? shared/clients/experiment.py")
+        state, _ = source_state(Path("/repo"), git=git)
+        recipe = rebuild_recipe(state, "apache-shopfront", "small")
+        self.assertIn("NOT REBUILDABLE", recipe)
+        self.assertIn("experiment.py", recipe)
+
+
 if __name__ == "__main__":
     unittest.main()

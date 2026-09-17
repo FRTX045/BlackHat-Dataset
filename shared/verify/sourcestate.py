@@ -41,44 +41,84 @@ def _git(repo, *args):
 _MAX_PATCH_BYTES = 2 << 20
 
 
-def source_state(repo, git=None):
+#: Untracked paths under these are a build's own output, not its source.
+#:
+#: Datasets are added to git only after they verify, so a finished build leaves
+#: an untracked directory behind. Counting that as a source modification marked
+#: every build after the first one dirty and shipped a **zero-byte**
+#: uncommitted.patch whose sha256 is the hash of the empty string -- which
+#: reads as "here is the difference that made this build" when there is none.
+#: A provenance field that cries wolf teaches people to ignore it, which is how
+#: `commit_is_clean` came to be ignored in the first place.
+OUTPUT_PREFIXES = ("datasets/",)
+
+
+def source_state(repo, git=None, output_prefixes=OUTPUT_PREFIXES):
     """What the source tree was when this build ran.
 
-    Returns ``(state, patch)``. ``patch`` is None for a clean tree, and
-    otherwise the full `git diff HEAD` for the build to ship beside the data.
+    Returns ``(state, patch)``. ``patch`` is None when there is nothing to
+    ship, and otherwise the full `git diff HEAD` for the build to write beside
+    the data.
 
     Recording the commit alone was not enough, and this project had the
     evidence in its own manifests for a month without reading it. All three
-    shipped datasets said ``commit_is_clean: false`` while their READMEs told
-    a consumer to check that commit out and rebuild. For the medium tier the
-    recorded commit predated the change that gave the URL space its long tail,
-    so the rebuild would have produced materially different data -- and the
-    number of things that looked fine while that was true is the reason the
-    field is now read rather than merely written.
+    datasets shipped in August said ``commit_is_clean: false`` while their
+    READMEs told a consumer to check that commit out and rebuild. For the
+    medium tier the recorded commit predated the change that gave the URL space
+    its long tail, so the rebuild produced materially different data.
 
-    Refusing dirty-tree builds outright would stop development dead, and the
-    honest alternative is cheaper: name the difference, ship the patch, and
-    let the rebuild recipe say what it actually takes.
+    Refusing dirty-tree builds outright would stop development dead, so the
+    difference is named instead: ship the patch, and let the rebuild recipe say
+    what it actually takes.
+
+    Three kinds of change, treated differently because they are different:
+
+    - **Modified tracked files** -- a patch reconstructs them exactly.
+    - **Untracked files outside the output tree** -- no patch can restore a
+      file git has never seen, so the build is honestly not reconstructable.
+    - **Untracked build output** -- not source at all. Recorded, filtered out
+      of the verdict.
     """
     git = git or _git
     commit = git(repo, "rev-parse", "HEAD")
     porcelain = git(repo, "status", "--porcelain") or ""
-    state = {"commit": commit, "commit_is_clean": porcelain == ""}
-    if porcelain == "":
+    lines = [line for line in porcelain.splitlines() if line.strip()]
+
+    tracked_changes = [line for line in lines if not line.startswith("??")]
+    untracked = [line[3:] for line in lines if line.startswith("??")]
+    outputs = sorted(u for u in untracked if u.startswith(output_prefixes))
+    stray = sorted(u for u in untracked if not u.startswith(output_prefixes))
+
+    state = {
+        "commit": commit,
+        "commit_is_clean": not tracked_changes and not stray,
+    }
+    if outputs:
+        # Filtered, not hidden: a reader should be able to see what was in the
+        # tree and judge for themselves.
+        state["build_outputs_present"] = outputs[:40]
+    if state["commit_is_clean"]:
         return state, None
 
     patch = git(repo, "diff", "HEAD") or ""
     encoded = patch.encode("utf-8", "replace")
-    state["uncommitted_diff_sha256"] = hashlib.sha256(encoded).hexdigest()
-    state["uncommitted_diff_bytes"] = len(encoded)
     state["uncommitted_diff_stat"] = (
         (git(repo, "diff", "--stat", "HEAD") or "").splitlines()[-40:])
-    # Untracked files are absent from `git diff HEAD`, so a patch alone cannot
-    # reconstruct a build that depended on one. Named separately for that
-    # reason rather than folded in.
-    state["untracked_files"] = sorted(
-        line[3:] for line in porcelain.splitlines()
-        if line.startswith("??"))[:40]
+    if stray:
+        # Named separately because `git diff HEAD` says nothing about a file git
+        # has never known, so a patch alone cannot reconstruct this build.
+        state["untracked_files"] = stray[:40]
+
+    if not encoded:
+        state["patch_shipped"] = False
+        state["patch_omitted_because"] = (
+            "no tracked file differs from the commit, so there is no patch to "
+            "ship; what made this tree dirty was untracked files, which no "
+            "patch can restore")
+        return state, None
+
+    state["uncommitted_diff_sha256"] = hashlib.sha256(encoded).hexdigest()
+    state["uncommitted_diff_bytes"] = len(encoded)
     if len(encoded) > _MAX_PATCH_BYTES:
         state["patch_shipped"] = False
         state["patch_omitted_because"] = (
@@ -105,10 +145,9 @@ def rebuild_recipe(state, project, tier):
             lines.append(f"git apply {PATCH_NAME}      "
                          f"# from this dataset folder")
         else:
-            lines.append("# NOT REBUILDABLE: this build was made from a "
-                         "modified tree whose")
-            lines.append("# patch was too large to ship. See "
-                         "source_state in MANIFEST.json.")
+            lines.append("# NOT REBUILDABLE: see source_state in "
+                         "MANIFEST.json --")
+            lines.append(f"#   {state.get('patch_omitted_because', 'no patch was recorded')}")
     lines.append(f"python3 tools/build.py {project} {tier}")
     if state.get("untracked_files"):
         lines.append("")

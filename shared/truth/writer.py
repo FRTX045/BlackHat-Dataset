@@ -32,7 +32,7 @@ _COMPACT = (",", ":")
 
 
 class TruthWriter:
-    """Writes a `weblog-truth` JSON Lines file one record at a time.
+    """Writes a `logarc-truth` JSON Lines file one record at a time.
 
     Args:
         fh: any object with a ``write`` method. Not closed by this class.
@@ -40,7 +40,12 @@ class TruthWriter:
         seed: the seed the run was built with.
         source_file_id: the log file these records describe, e.g. ``access.log``.
         generated_at: ISO 8601 timestamp with offset.
-        kind: read from the scenario config; defaults to ``weblog-truth``.
+        kind: read from the scenario config; defaults to ``logarc-truth``.
+            Named for the consumer rather than for the format, deliberately:
+            `logarc`'s reader refuses any file whose `kind` is not exactly
+            this, so a neutral name meant every dataset this repository
+            shipped was unreadable by the only tool built to read it. The
+            field stays configurable for anything that wants a different one.
         version: truth format version.
         granularity: ``category`` when the producing activity is known -- which
             it always is for datasets built here. ``binary`` exists for
@@ -48,7 +53,7 @@ class TruthWriter:
     """
 
     def __init__(self, fh, *, scenario, seed, source_file_id, generated_at,
-                 kind="weblog-truth", version=1, granularity="category"):
+                 kind="logarc-truth", version=1, granularity="category"):
         self._fh = fh
         self._line_no = 0
         # No total in the header. A count written up front can disagree with

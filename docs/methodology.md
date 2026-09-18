@@ -399,11 +399,68 @@ Everything needed to check the work is in the dataset folder.
 
 ### On reproducibility
 
-The same seed produces the same **request sequence**. Timestamps and
-interleaving differ between runs, because the requests are genuinely issued
-concurrently against a real server and the ordering depends on how that run
-actually went.
+The same seed **and the same application** produce the same request sequence.
+Timestamps and interleaving differ between runs, because the requests are
+genuinely issued concurrently against a real server and the ordering depends
+on how that run actually went.
+
+The application half of that claim is new, and it is a real weakening. It was
+accepted deliberately, on 2026-08-23, when the campaigns became reactive.
+
+Before, a campaign expanded into its full list of requests before the first
+one went out, so the seed alone fixed the plan. That made the seed a stronger
+guarantee and the operators much worse: they sent the remaining column-count
+guesses after one had already worked, walked order ids without checking the
+sign-in had taken, and fetched a webshell whose upload the server had just
+refused with a 415. `webshell_operator` was declared `succeeds=True` and every
+line it wrote said so, whatever the application had actually done.
+
+Now an operator reads each response and decides. Which phases run at all
+depends on what the earlier ones found — extraction happens only through an
+injection that was confirmed, and `/admin/ping` is attacked only by an
+operator that watched it answer while `/admin/users` refused. What a campaign
+achieved is therefore an **observation**, recorded per run beside the
+prediction in `expects`, and no longer something the definition asserts.
+
+The cost is that the plan is a function of the responses, and six campaigns
+run concurrently against one shared, mutating application. Two mitigations
+keep it tractable:
+
+- A playbook may branch only on the response to **its own** last request, and
+  only on coarse signals — the status, whether a marker string is present, how
+  long it took. Never on anything another campaign could have changed.
+- The determinism tests drive the generators from a scripted set of responses,
+  so the check is that the same seed and the same answers give the same
+  requests — still from a subprocess, under two different hash seeds, for the
+  reason below.
+
+The other cost is that a run can now legitimately achieve nothing, so a tier
+could ship with no `exploitation` lines in it at all. That would be truthful
+and useless. Each scenario therefore declares an `[attacks.coverage]` floor
+and the build refuses rather than publishing a tier that came in under it.
+**A shortfall is not answered by re-rolling the seed until it passes** — that
+is choosing the measurement, which is the one thing this project must not do.
+It is answered by changing the roster, or by writing the shortfall down.
 
 Byte-identical output is not claimed, because it cannot be delivered. A dataset
 that claims a property it does not have is worse than one that is honest about
 its limits — the first one gets trusted.
+
+That claim was wrong for a while, in a small way, and the correction belongs
+here rather than in a commit message. Until 2026-08-20 each campaign drew its
+random state from `hash(campaign_name)`. Python salts string hashing per
+process unless `PYTHONHASHSEED` is set, and nothing here sets it, so the same
+scenario seed produced a different plan on every build. The attack requests
+were never affected — a playbook takes no random state and expands identically
+every time — but the short browsing lulls between phases were redrawn, varying
+by a few requests out of the 36 to 39 the six campaigns issue between them.
+
+The determinism test that should have caught it compared two expansions inside
+one interpreter, where a salted hash is constant, and it built its own random
+state rather than the one the runner uses. Both are now checked from a
+subprocess under two different hash seeds.
+
+The three datasets under `datasets/` were built before the fix and carry the
+defect. Their attack traffic reproduces; their lulls do not. Note that their
+`How to rebuild it` instructions pin a commit that predates the fix, so
+following them reproduces the defect too.

@@ -13,15 +13,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from shared.timeline.remap import RemapReport
-from tools.build import (BuildError, dataset_dir, load_scenario, run_steps,
-                         timestamp_block, validate_tier)
+from tools.build import (BuildError, categories_below_floor,
+                         chosen_campaigns, dataset_dir, load_scenario,
+                         run_steps, seeded, timestamp_block,
+                         validate_tier)
 
 REPO = Path(__file__).resolve().parents[2]
 
 NOW = datetime(2026, 8, 16, 9, 0, tzinfo=timezone.utc)
 
 SMALL_TOML = """
-kind = "weblog-truth"
+kind = "logarc-truth"
 seed = 7
 target_lines = 50000
 duration_seconds = 600
@@ -44,7 +46,7 @@ class TestScenario(unittest.TestCase):
     def test_reads_the_fields_the_build_depends_on(self):
         scenario = load_scenario(self.path)
         self.assertEqual(scenario["seed"], 7)
-        self.assertEqual(scenario["kind"], "weblog-truth")
+        self.assertEqual(scenario["kind"], "logarc-truth")
         self.assertEqual(scenario["personas"]["crawler"], 0.2)
 
     def test_a_scenario_without_a_seed_is_refused(self):
@@ -97,6 +99,66 @@ class TestDatasetDirectory(unittest.TestCase):
         path = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW)
         self.assertEqual(
             path, Path("/repo/datasets/apache-shopfront/2026-08-16-small"))
+
+
+
+class TestBuildingOneScenarioAtSeveralSeeds(unittest.TestCase):
+    """A sweep is how a finding stops being one draw.
+
+    A single build says what happened once. Whether a category the tool never
+    predicted is a rule gap or an unlucky cast is not answerable from it, and
+    the roster is drawn from the seed -- so the way to tell them apart is to
+    build the same scenario several times and see what holds. That needs the
+    seed to be settable without editing a tracked config in a loop.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.path = self.dir / "small.toml"
+        self.path.write_text(SMALL_TOML)
+
+    def test_the_scenarios_seed_is_what_a_plain_build_uses(self):
+        # The override is an override. With no flag the file still decides,
+        # which is what makes a published dataset rebuildable from its
+        # scenario alone.
+        self.assertEqual(seeded(load_scenario(self.path), None)["seed"], 7)
+
+    def test_an_override_replaces_it(self):
+        self.assertEqual(seeded(load_scenario(self.path), 13)["seed"], 13)
+
+    def test_overriding_does_not_edit_the_scenario_file(self):
+        # The alternative to this flag was rewriting `seed = N` in the toml
+        # before each build. An interrupted sweep would leave a tracked file
+        # holding a seed nobody chose.
+        seeded(load_scenario(self.path), 13)
+        self.assertEqual(load_scenario(self.path)["seed"], 7)
+
+    def test_seed_zero_is_an_override_like_any_other(self):
+        # `if seed:` would silently fall back to the scenario here.
+        self.assertEqual(seeded(load_scenario(self.path), 0)["seed"], 0)
+
+    def test_two_seeds_of_one_tier_do_not_land_in_one_directory(self):
+        # Every build of a tier on a given day named one directory. A sweep
+        # of eight would have been eight builds overwriting one dataset, and
+        # the only sign of it is a manifest whose seed is not the one asked
+        # for -- which nobody reads until the numbers are already published.
+        first = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW,
+                            seed=13)
+        second = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW,
+                             seed=19)
+        self.assertNotEqual(first, second)
+
+    def test_the_directory_says_which_seed_built_it(self):
+        path = dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW,
+                           seed=13)
+        self.assertIn("13", path.name)
+
+    def test_a_build_at_the_scenarios_own_seed_is_named_as_it_always_was(self):
+        # Naming is a published contract: `docs/` and the three shipped
+        # datasets all carry `<date>-<tier>`. Only a sweep needs the suffix.
+        self.assertEqual(
+            dataset_dir(Path("/repo"), "apache-shopfront", "small", NOW),
+            Path("/repo/datasets/apache-shopfront/2026-08-16-small"))
 
 
 class TestTheShippedScenarios(unittest.TestCase):
@@ -359,3 +421,127 @@ class TestRunSteps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheCoverageFloor(unittest.TestCase):
+    """What a campaign achieves is now decided by the application.
+
+    That is the point, and it has a consequence: on an unlucky seed a whole
+    tier can come out with no exploitation in it. Truthful, and useless for
+    the thing the dataset exists for. The scenario says what it needs and the
+    build refuses rather than shipping a tier quietly missing it.
+    """
+
+    def test_it_names_a_category_the_run_never_reached(self):
+        self.assertEqual(
+            categories_below_floor({"injection": 4}, {"exploitation": 1}),
+            [("exploitation", 1, 0)])
+
+    def test_it_catches_short_measure_not_only_absence(self):
+        self.assertEqual(
+            categories_below_floor({"exploitation": 2}, {"exploitation": 5}),
+            [("exploitation", 5, 2)])
+
+    def test_it_is_quiet_when_the_floor_is_met(self):
+        self.assertEqual(
+            categories_below_floor({"exploitation": 3}, {"exploitation": 1}), [])
+
+    def test_a_scenario_asking_for_nothing_is_satisfied_by_nothing(self):
+        self.assertEqual(categories_below_floor({}, {}), [])
+
+    def test_every_shortfall_is_reported_not_just_the_first(self):
+        short = categories_below_floor({}, {"exploitation": 1, "injection": 2})
+        self.assertEqual([name for name, _, _ in short],
+                         ["exploitation", "injection"])
+
+
+class TestWhoTurnsUpThisBuild(unittest.TestCase):
+    """The same six operators arriving in every build is its own tell.
+
+    How many people are attacking a server varies week to week. Fixing both
+    the count and the cast makes the attacker population a constant, which is
+    the one thing it certainly is not in a real log.
+    """
+
+    ROSTER = ["patient_operator", "webshell_operator", "blind_injector",
+              "metadata_hunter", "credential_hunter", "fruitless_prober",
+              "cms_bot", "cve_sweeper", "greedy_scraper", "api_abuser"]
+
+    def test_two_builds_do_not_draw_the_same_cast(self):
+        seen = {tuple(chosen_campaigns(self.ROSTER, seed))
+                for seed in range(12)}
+        self.assertGreater(len(seen), 1)
+
+    def test_the_number_of_attackers_varies(self):
+        sizes = {len(chosen_campaigns(self.ROSTER, seed))
+                 for seed in range(30)}
+        self.assertGreater(len(sizes), 1, "every build ran the same number")
+
+    def test_one_seed_always_draws_the_same_cast(self):
+        # Determinism is a published claim, so the variety has to come off
+        # the seed rather than from anything the build finds at run time.
+        self.assertEqual(chosen_campaigns(self.ROSTER, 7),
+                         chosen_campaigns(self.ROSTER, 7))
+
+    def test_it_only_ever_names_operators_the_roster_declares(self):
+        # Compose has to declare every service up front, so a build cannot
+        # invent an attacker -- it can only decline to start one.
+        for seed in range(20):
+            with self.subTest(seed=seed):
+                self.assertLessEqual(set(chosen_campaigns(self.ROSTER, seed)),
+                                     set(self.ROSTER))
+
+    def test_it_never_draws_so_few_that_the_tier_has_no_attacks(self):
+        for seed in range(30):
+            with self.subTest(seed=seed):
+                self.assertGreaterEqual(
+                    len(chosen_campaigns(self.ROSTER, seed)), 3)
+
+    def test_a_roster_smaller_than_the_floor_is_taken_whole(self):
+        self.assertEqual(chosen_campaigns(["a", "b"], 7), ["a", "b"])
+
+
+class TestTheDrawNeverDeletesAnAttackClass(unittest.TestCase):
+    """A varying cast is realism; a vanishing attack class is a broken build.
+
+    Measured: a draw that left out `metadata_hunter` took `ssrf` from five
+    lines to zero, and `path_traversal` to one. Scoring anything per-category
+    at those supports is reading noise. The population may vary; whether a
+    whole class of attack exists in the dataset may not.
+    """
+
+    ROSTER = ["patient_operator", "webshell_operator", "blind_injector",
+              "metadata_hunter", "credential_hunter", "fruitless_prober",
+              "cms_bot", "cve_sweeper", "greedy_scraper", "api_abuser"]
+
+    def test_a_required_operator_is_always_drawn(self):
+        for seed in range(40):
+            drawn = chosen_campaigns(self.ROSTER, seed,
+                                     required=("metadata_hunter",))
+            with self.subTest(seed=seed):
+                self.assertIn("metadata_hunter", drawn)
+
+    def test_several_required_operators_are_all_drawn(self):
+        need = ("metadata_hunter", "blind_injector")
+        for seed in range(40):
+            with self.subTest(seed=seed):
+                self.assertLessEqual(set(need),
+                                     set(chosen_campaigns(self.ROSTER, seed,
+                                                          required=need)))
+
+    def test_the_rest_of_the_cast_still_varies(self):
+        # Pinning the required ones must not pin everybody.
+        seen = {tuple(chosen_campaigns(self.ROSTER, s,
+                                       required=("metadata_hunter",)))
+                for s in range(20)}
+        self.assertGreater(len(seen), 1)
+
+    def test_requiring_nothing_changes_nothing(self):
+        self.assertEqual(chosen_campaigns(self.ROSTER, 7),
+                         chosen_campaigns(self.ROSTER, 7, required=()))
+
+    def test_a_required_name_not_on_the_roster_is_an_error(self):
+        # Silently ignoring it would let a scenario think it had guaranteed
+        # coverage it had not.
+        with self.assertRaises(BuildError):
+            chosen_campaigns(self.ROSTER, 7, required=("no_such_operator",))

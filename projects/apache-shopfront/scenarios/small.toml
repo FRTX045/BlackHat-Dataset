@@ -77,11 +77,14 @@ pace = 8.0
 # also brings the Referer share down, because none of them sends one, and that
 # was sitting at 90% against a real-world 40-70%.
 shopper = 0.20
-casual = 0.22
+casual = 0.19
 returning = 0.08
 mobile = 0.10
 crawler = 0.18
 monitor = 0.10
+# The shop's own staff. A small share on purpose: a shop this size
+# has one or two people with an admin login, not a workforce.
+admin = 0.03
 scanner = 0.12
 
 [attacks]

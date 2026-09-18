@@ -32,6 +32,7 @@ import json
 import random
 import re
 import sys
+from urllib.parse import quote_plus
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,8 +49,8 @@ except ImportError:  # pragma: no cover - the host has no third-party packages
 sys.path.insert(0, "/opt/logforge")
 
 from shared.clients.ippools import ClientPool  # noqa: E402
-from shared.clients.personas import (NO_REFERER, PERSONA_IDENTITY,  # noqa: E402
-                                     journey)
+from shared.clients.personas import (ADMIN_ADDRESSES,  # noqa: E402
+                                     NO_REFERER, PERSONA_IDENTITY, journey)
 from shared.clients.useragents import UserAgentPool  # noqa: E402
 from shared.timeline.sessions import plan_sessions  # noqa: E402
 from shared.truth.ids import new_request_id  # noqa: E402
@@ -113,10 +114,26 @@ class Driver:
         # One lock per client address: a visitor cannot be in two places at
         # once, and their episode ids would interleave in the log if they were.
         self.per_client = defaultdict(asyncio.Lock)
+        # One cookie jar per client address, managed here rather than by the
+        # HTTP client.
+        #
+        # httpx keeps a single jar on the AsyncClient, and this driver shares
+        # one client across every session for its connection pool. So one
+        # visitor signing in authenticated everybody else: measured on the
+        # shipped medium tier, /account/* came back 1,392 x 200 and 529 x 302
+        # from addresses with no session of their own, the 200s borrowed from
+        # whichever unrelated client had logged in most recently.
+        #
+        # That breaks the coherent-client-identity property the whole dataset
+        # rests on, and it makes session reconstruction an exercise in reading
+        # an artefact. Keyed by address, like the locks above, because one
+        # address is one visitor at a time here.
+        self.jars = defaultdict(dict)
         self.issued = 0
 
     async def fetch(self, client, step_path, method, client_ip, agent,
-                    category, activity, referer, extra_headers=None):
+                    category, activity, referer, extra_headers=None,
+                    login_as=None):
         request_id = new_request_id()
         headers = {
             "X-Forwarded-For": client_ip,
@@ -125,6 +142,9 @@ class Driver:
         }
         if referer:
             headers["Referer"] = referer
+        jar = self.jars[client_ip]
+        if jar:
+            headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in jar.items())
         if extra_headers:
             headers.update(extra_headers)
 
@@ -134,8 +154,12 @@ class Driver:
             body = json.dumps({"id": self._any_product(), "quantity": 1})
         elif method == "POST" and step_path == "/login":
             headers["Content-Type"] = "application/x-www-form-urlencoded"
-            user = self.rng.choice(self.catalogue["users"])
-            body = f"username={user['username']}&password={user['password']}"
+            if login_as:
+                username, password = login_as
+            else:
+                user = self.rng.choice(self.catalogue["users"])
+                username, password = user["username"], user["password"]
+            body = f"username={quote_plus(username)}&password={quote_plus(password)}"
 
         try:
             response = await client.request(
@@ -144,6 +168,8 @@ class Driver:
             # The request was still made and Apache may still have logged it.
             # The ledger records it either way; the join is what decides.
             response = None
+        else:
+            self._remember_cookies(client, client_ip, response)
 
         await self.ledger.record(
             request_id=request_id, client_ip=client_ip, actor=ACTOR,
@@ -152,6 +178,29 @@ class Driver:
             instance_id=self.episodes.id_for(client_ip, activity))
         self.issued += 1
         return response
+
+    def _remember_cookies(self, client, client_ip, response):
+        """Keep this response's cookies against this address, and only this one.
+
+        The client's own jar is emptied afterwards. It has to be: if httpx
+        held on to a PHPSESSID it would attach it to the next request from a
+        different address, which is exactly the leak this method exists to
+        stop. Clearing is idempotent, so it is safe against the other sessions
+        sharing this client concurrently -- the jar is never the authority
+        here, `self.jars` is.
+        """
+        for value in response.headers.get_list("set-cookie"):
+            pair = value.split(";", 1)[0]
+            if "=" in pair:
+                key, _, val = pair.partition("=")
+                key, val = key.strip(), val.strip()
+                # An expiry in the past is a deletion, which is how a logout
+                # ends a session.
+                if val in ("", "deleted"):
+                    self.jars[client_ip].pop(key, None)
+                else:
+                    self.jars[client_ip][key] = val
+        client.cookies.clear()
 
     def _any_product(self):
         category = self.rng.choice(self.catalogue["categories"])
@@ -192,7 +241,13 @@ class Driver:
 
     async def run_session(self, client, session):
         ua_persona, role = PERSONA_IDENTITY[session.persona]
-        client_ip = self.clients.draw(role)
+        # The administrators have reserved addresses the manifest names, so
+        # they are assigned rather than drawn. Everybody else comes out of the
+        # pool.
+        if session.persona == "admin":
+            client_ip = ADMIN_ADDRESSES[session.index % len(ADMIN_ADDRESSES)]
+        else:
+            client_ip = self.clients.draw(role)
         agent = self.agents.for_client(client_ip, ua_persona)
 
         async with self.per_client[client_ip]:
@@ -220,7 +275,8 @@ class Driver:
                 async with self.gate:
                     response = await self.fetch(
                         client, path, step.method, client_ip, agent,
-                        step.category, step.activity, referer)
+                        step.category, step.activity, referer,
+                        login_as=step.login_as)
 
                 if step.method == "GET":
                     previous = path

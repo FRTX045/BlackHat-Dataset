@@ -51,6 +51,7 @@ from shared.verify.provenance import check_provenance  # noqa: E402
 from shared.verify.stats import summarise  # noqa: E402
 from shared.verify.tells import audit  # noqa: E402
 from shared.verify.tells import summary as audit_summary  # noqa: E402
+from shared.verify.sourcestate import rebuildability  # noqa: E402
 
 REQUIRED_FILES = ("access.log", "truth.jsonl", "MANIFEST.json", "README.md")
 
@@ -152,6 +153,18 @@ def report(dataset, records, truth_records, manifest):
     print(f"  lines                          {stats['lines']}")
     print(f"  seed                           {manifest.get('seed')}")
     print(f"  commit                         {manifest.get('commit')}")
+    source = manifest.get("source_state") or {}
+    print(f"\nsource tree")
+    print(f"  commit                         {source.get('commit')}")
+    print(f"  clean at build time            {source.get('commit_is_clean')}")
+    if source.get("commit_is_clean") is False:
+        print(f"  uncommitted patch shipped      "
+              f"{source.get('patch_shipped')}")
+        print(f"  patch sha256                   "
+              f"{str(source.get('uncommitted_diff_sha256'))[:16]}")
+        for line in (source.get("uncommitted_diff_stat") or [])[-6:]:
+            print(f"    {line.strip()}")
+
 
     clock = manifest.get("timestamps", {})
     print(f"\nclock")
@@ -218,6 +231,10 @@ def verify(dataset, repo=REPO, project=None):
     # file there is individually consistent even when the remap has dropped a
     # line or the sample is not a slice of what it names.
     problems.extend(check_dataset(dataset))
+    # Whether the recipe in the README is one anybody can actually follow.
+    # All three datasets shipped for a month saying commit_is_clean: false
+    # while promising a rebuild from the recorded commit.
+    problems.extend(rebuildability(manifest, dataset))
     problems.extend(provenance(dataset, manifest, repo, project))
 
     stats = report(dataset, records, truth_records, manifest)

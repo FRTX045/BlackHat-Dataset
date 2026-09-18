@@ -21,6 +21,19 @@ CATALOGUE = {
         {"slug": f"cat-{c}", "products": list(range(c * 13 + 1, c * 13 + 14))}
         for c in range(10)
     ],
+    # The shape the seeder publishes, including the admin account. The admin
+    # journey looks its credentials up here rather than hardcoding them, so a
+    # fixture without a `users` key made that journey plan nothing at all --
+    # which is how this key came to be missing from the fixture for a month
+    # without anybody noticing.
+    "users": [
+        {"username": "demo", "password": "demo123", "role": "customer",
+         "orders": [1, 5, 9]},
+        {"username": "rmarsh", "password": "hunter2", "role": "customer",
+         "orders": [2, 6]},
+        {"username": "agatha", "password": "brassneck", "role": "admin",
+         "orders": [4]},
+    ],
 }
 
 PRODUCT_CATEGORY = {
@@ -276,3 +289,149 @@ class TestDeterminism(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheAdministratorJourney(unittest.TestCase):
+    """The shop's own staff, doing ordinary administration.
+
+    This exists because a downstream detection project measured that every
+    request to an admin path in this corpus came from an attacker. A rule
+    flagging `GET /admin -> 302` therefore scored perfectly, and would have
+    scored perfectly whether or not it also flagged the shop's owner. A
+    measurement that cannot fail is not evidence.
+
+    What these pin down is the part that makes the addition worth anything: the
+    unauthenticated bounce is present, and none of it is labelled with the
+    category the attackers' admin requests use.
+    """
+
+    def journeys(self, count=300, seed=11):
+        return journeys("admin", count=count, seed=seed)
+
+    def test_the_first_request_is_an_unauthenticated_admin_path(self):
+        # The whole point. Starting from an already-authenticated session would
+        # leave the corpus exactly as unable to tell a legitimate
+        # administrator from somebody rattling the handle.
+        for journey in self.journeys():
+            with self.subTest(first=journey[0].path):
+                self.assertTrue(journey[0].path.startswith("/admin"))
+                self.assertEqual(journey[0].method, "GET")
+
+    def test_nothing_in_it_is_labelled_access_control(self):
+        # `access_control` is what the attackers' admin requests carry. If
+        # these landed there too, the corpus still could not distinguish the
+        # two cases and the exercise would have bought nothing.
+        for journey in self.journeys():
+            for step in journey:
+                with self.subTest(path=step.path):
+                    self.assertNotEqual(step.category, "access_control")
+
+    def test_every_step_is_authentication_or_browsing(self):
+        allowed = {"authentication", "browsing"}
+        for journey in self.journeys():
+            for step in journey:
+                with self.subTest(path=step.path, category=step.category):
+                    self.assertIn(step.category, allowed)
+
+    def test_the_bounce_and_the_login_page_are_authentication(self):
+        for journey in self.journeys():
+            self.assertEqual(journey[0].category, "authentication")
+            self.assertEqual(journey[1].category, "authentication")
+            self.assertIn("/login", journey[1].path)
+
+    def test_a_wrong_password_comes_before_a_correct_one(self):
+        # Real people mistype. A corpus where every legitimate sign-in succeeds
+        # first time cannot tell a typo from the start of a credential attack.
+        for journey in self.journeys():
+            logins = [s for s in journey
+                      if s.method == "POST" and s.path == "/login"]
+            with self.subTest(n=len(logins)):
+                self.assertEqual(len(logins), 2)
+                self.assertTrue(logins[0].login_as[1].startswith("wrong-"))
+                self.assertEqual(logins[1].login_as,
+                                 ("agatha", "brassneck"))
+
+    def test_the_signed_in_work_is_browsing(self):
+        for journey in self.journeys():
+            work = [s for s in journey if s.activity == "admin-work"]
+            self.assertTrue(work)
+            for step in work:
+                with self.subTest(path=step.path):
+                    self.assertEqual(step.category, "browsing")
+                    self.assertTrue(step.path.startswith("/admin"))
+
+    def test_some_visits_end_with_an_expired_session_bouncing_again(self):
+        # The case an analyst is most likely to mistake for an attacker
+        # returning: the same 302 from the same admin path, hours later.
+        expired = [j for j in self.journeys()
+                   if any(s.activity == "expired" for s in j)]
+        self.assertTrue(expired)
+        for journey in expired:
+            step = next(s for s in journey if s.activity == "expired")
+            self.assertTrue(step.path.startswith("/admin"))
+            self.assertEqual(step.category, "authentication")
+
+    def test_activities_stay_contiguous(self):
+        # The same rule every other persona is held to: an activity is a run,
+        # and returning to one would produce episodes that validate and mean
+        # nothing.
+        for journey in self.journeys():
+            runs = []
+            for step in journey:
+                if not runs or runs[-1] != step.activity:
+                    runs.append(step.activity)
+            with self.subTest(runs=runs):
+                self.assertEqual(len(runs), len(set(runs)))
+
+    def test_it_plans_nothing_when_the_catalogue_has_no_admin(self):
+        # Deliberate, and better than the alternative: a journey that signs in
+        # as somebody who does not exist would fill the log with 401s and 403s
+        # labelled as ordinary administration.
+        from shared.clients.personas import journey as plan
+        import random
+        catalogue = dict(CATALOGUE, users=[
+            {"username": "demo", "password": "x", "role": "customer",
+             "orders": []}])
+        self.assertEqual(plan("admin", random.Random(1), catalogue), [])
+
+
+class TestTheAdminAddresses(unittest.TestCase):
+
+    def test_they_are_fixed_and_distinct(self):
+        from shared.clients.personas import ADMIN_ADDRESSES
+        self.assertGreaterEqual(len(ADMIN_ADDRESSES), 2,
+                                "a second admin keeps the pattern from being "
+                                "one client's quirk")
+        self.assertEqual(len(set(ADMIN_ADDRESSES)), len(ADMIN_ADDRESSES))
+
+    def test_the_session_driver_can_never_draw_one(self):
+        # Two sources writing episodes for one address would break the
+        # contiguity the truth file promises, and it would surface after a
+        # full build with nothing pointing at the cause.
+        from shared.clients.ippools import ClientPool
+        from shared.clients.personas import ADMIN_ADDRESSES
+        pool = ClientPool(seed=7)
+        drawn = {pool.draw(role) for role in ROLES for _ in range(3000)}
+        self.assertEqual(set(ADMIN_ADDRESSES) & drawn, set())
+
+    def test_they_are_inside_the_reserved_ranges(self):
+        from shared.clients.ippools import is_allowed
+        from shared.clients.personas import ADMIN_ADDRESSES
+        for address in ADMIN_ADDRESSES:
+            with self.subTest(address=address):
+                self.assertTrue(is_allowed(address))
+
+    def test_they_collide_with_nothing_else_reserved(self):
+        import sys
+        from pathlib import Path as P
+        root = P(__file__).resolve().parents[2]
+        sys.path.insert(0, str(root / "projects" / "apache-shopfront" / "attacks"))
+        sys.path.insert(0, str(root / "projects" / "apache-shopfront" / "traffic"))
+        from shared.clients.personas import ADMIN_ADDRESSES
+        from toolruns import TOOL_RUNS
+        from browser import BROWSER_PERSONAS
+        taken = ({r.address for r in TOOL_RUNS}
+                 | {p.address for p in BROWSER_PERSONAS}
+                 | {"203.0.113.2", "203.0.113.3", "203.0.113.4",
+                    "203.0.113.5", "203.0.113.6"})
+        self.assertEqual(set(ADMIN_ADDRESSES) & taken, set())

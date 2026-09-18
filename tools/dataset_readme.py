@@ -13,6 +13,8 @@ Stdlib only.
 
 import json
 
+from shared.verify.sourcestate import rebuild_recipe
+
 
 def _percent(share):
     return f"{share * 100:.2f}%"
@@ -86,6 +88,28 @@ session-duration-based can be studied on this file."""
         tool_table = ("None — no tool-driven attacks ran in this build. The "
                       "attack traffic here is entirely hand-written, from "
                       "`attacks/playbooks.py`.")
+
+    source = manifest.get("source_state") or {}
+    recipe = rebuild_recipe(source, project, tier) if source else (
+        f"git checkout {manifest.get('commit')}\n"
+        f"python3 tools/build.py {project} {tier}")
+    if source.get("commit_is_clean"):
+        rebuild_note = ("The tree was clean when this was built, so the commit "
+                        "above is the whole story.")
+    elif source.get("patch_shipped"):
+        rebuild_note = (
+            "**This build was made from a modified working tree.** The commit "
+            "alone does not reproduce it, so the difference ships beside the "
+            f"data as `{source.get('patch_file', 'uncommitted.patch')}` "
+            f"(sha256 `{str(source.get('uncommitted_diff_sha256'))[:16]}`) and "
+            "the recipe applies it. Without that patch the rebuild would "
+            "produce different data from what is here.")
+    else:
+        rebuild_note = (
+            "**This build is not reconstructable from the repository.** It was "
+            "made from a modified working tree whose patch was too large to "
+            "ship, so the commit above records where the tree started and not "
+            "what ran. Treat the shipped bytes as the artefact.")
 
     browser = manifest.get("browser") or {}
     if browser.get("requests"):
@@ -240,9 +264,10 @@ file are the same request by construction.
 ### How to rebuild it
 
 ```bash
-git checkout {manifest['commit']}
-python3 tools/build.py {project} {tier}
+{recipe}
 ```
+
+{rebuild_note}
 
 The same seed reproduces the same request sequence. Timestamps and interleaving
 differ between runs under real concurrency; this is not byte-identical output

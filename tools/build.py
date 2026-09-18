@@ -31,6 +31,8 @@ from shared.truth.join import join  # noqa: E402
 from shared.truth.reader import read_truth  # noqa: E402
 from shared.truth.validate import validate_records  # noqa: E402
 from shared.verify.agreement import compare_logs  # noqa: E402
+from shared.verify.sourcestate import (PATCH_NAME,  # noqa: E402
+                                       rebuildability, source_state)
 from shared.verify.stats import summarise  # noqa: E402
 from shared.verify.tells import audit, summary as audit_summary  # noqa: E402
 from tools import dataset_readme  # noqa: E402
@@ -49,6 +51,7 @@ HEALTH_TIMEOUT = 90
 #: Lines of the finished log committed alongside the source, so the shape
 #: of the data can be seen without downloading a release asset.
 SAMPLE_LINES = 5000
+
 
 
 class BuildError(RuntimeError):
@@ -308,7 +311,7 @@ def timestamp_block(remap):
 def build_manifest(*, project, tier, scenario, scenario_path, started_at,
                    finished_at, report, agreement, truth_errors, repo,
                    base_image_digest, tool_runs, campaigns=(), remap=None,
-                   tells=(), browser=None):
+                   tells=(), browser=None, source=None, admins=None):
     """Assemble the record of how this dataset came to exist."""
     return {
         "kind": "logforge-manifest",
@@ -317,8 +320,13 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         "tier": tier,
         "scenario_file": str(Path(scenario_path).relative_to(repo)),
         "seed": scenario["seed"],
-        "commit": _git(repo, "rev-parse", "HEAD"),
-        "commit_is_clean": _git(repo, "status", "--porcelain") == "",
+        # Kept at the top level for readers and tools that already look here.
+        "commit": (source or {}).get("commit"),
+        "commit_is_clean": (source or {}).get("commit_is_clean"),
+        # The full account, including the patch that turns a dirty-tree build
+        # back into a reconstructable one. `commit` alone was recorded for a
+        # month while every shipped dataset was built from a modified tree.
+        "source_state": source or {},
         "started_at": started_at.isoformat(),
         "finished_at": finished_at.isoformat(),
         "wall_clock_seconds": round(
@@ -339,6 +347,9 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
         # Empty when no headless browser ran, which is a fact about the build
         # and is stated in the dataset README rather than left to inference.
         "browser": browser,
+        # The shop's own staff. Named here, beside the attack campaigns, so a
+        # reader can see that benign admin traffic was deliberate.
+        "admins": admins or {},
         "derived_vs_apache_combined": {
             # Named explicitly: once timestamps are remapped this check runs
             # against the capture, not the shipped log. Comparing a rewritten
@@ -599,6 +610,28 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             for outcome in concurrent.futures.as_completed(jobs):
                 outcome.result()
 
+    def record_admins():
+        """What the shop's own staff did, named the way campaigns are named.
+
+        Recorded so a later reader can tell this traffic was deliberate rather
+        than a labelling slip. It exists because a downstream detection project
+        measured that every request to an admin path in this corpus came from
+        an attacker, which made a rule flagging `GET /admin -> 302` impossible
+        to falsify -- there were no innocent people in the admin area to
+        wrongly flag.
+        """
+        sys.path.insert(0, str(REPO))
+        from shared.clients.personas import (ADMIN_ADDRESSES,  # noqa: PLC0415
+                                             ADMIN_DESCRIPTION)
+        seen = _requests_by_source(driver_ledger)
+        state["admins"] = {
+            "addresses": list(ADMIN_ADDRESSES),
+            "description": ADMIN_DESCRIPTION,
+            "requests": {a: seen.get(a, 0) for a in ADMIN_ADDRESSES},
+            "categories": ["authentication", "browsing"],
+            "deliberately_not": "access_control",
+        }
+
     def collect():
         for name in ("access.tagged.log", "error.log"):
             shutil.copy2(logs / name, out / name)
@@ -715,6 +748,13 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
 
     def manifest():
         finished_at = datetime.now(timezone.utc)
+        # Captured here rather than at the start: what matters is the tree the
+        # build actually ran from, and nothing in a build mutates tracked
+        # source. The patch ships beside the data so the recorded commit is a
+        # recipe rather than a decoration.
+        source, patch = source_state(repo)
+        if patch is not None:
+            (out / PATCH_NAME).write_text(patch, encoding="utf-8")
         state["manifest"] = build_manifest(
             project=project, tier=tier, scenario=scenario,
             scenario_path=scenario_path, started_at=started_at,
@@ -726,7 +766,8 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             tool_runs=state.get("tool_runs", []),
             campaigns=state.get("campaign_outcomes", []),
             remap=state.get("remap"), tells=state.get("tells", ()),
-            browser=state.get("browser") or {})
+            browser=state.get("browser") or {}, source=source,
+            admins=state.get("admins") or {})
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 
@@ -734,6 +775,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         ("bringing the stack up", bring_up),
         ("driving traffic and attacks together", drive_and_attack),
         ("adding background noise", make_noise),
+        ("recording the administrators", record_admins),
         ("collecting what Apache wrote", collect),
         ("joining the labels", label),
         ("putting the log on a realistic clock", remap_clock),
@@ -780,6 +822,21 @@ def main(argv=None):
               f"from {len(browser['personas'])} personas")
     else:
         print("  browser                  not run")
+    source = manifest.get("source_state") or {}
+    if source.get("commit_is_clean"):
+        print(f"  source                   {str(source.get('commit'))[:12]} "
+              f"(clean)")
+    else:
+        shipped = "patch shipped" if source.get("patch_shipped") \
+            else "NOT REBUILDABLE"
+        print(f"  source                   {str(source.get('commit'))[:12]} "
+              f"+ uncommitted changes -- {shipped}")
+    admins = manifest.get("admins") or {}
+    if admins.get("requests"):
+        total = sum(admins["requests"].values())
+        print(f"  admin traffic            {total} requests from "
+              f"{len(admins['addresses'])} addresses "
+              f"({', '.join(admins['addresses'])})")
     fired = manifest["audit"]["fired"]
     print(f"  fake-log tells fired     {len(fired)}"
           + (f": {', '.join(fired)}" if fired else ""))

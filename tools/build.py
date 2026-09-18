@@ -878,6 +878,18 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
             json.dumps(sample_header, separators=(",", ":")) + "\n"
             + "\n".join(renumbered) + "\n", encoding="utf-8")
 
+    def pin_bytes():
+        """Write SHA256SUMS covering what this build produced.
+
+        Last, because it has to hash the finished files. Packaging rewrites it
+        later to cover the archives as well. Before this step existed,
+        checksums were written only by the packaging tool -- so a dataset that
+        was built, verified and committed without being packaged had its bytes
+        pinned by nothing, which three shipped folders demonstrated.
+        """
+        from tools.package import write_sums  # noqa: PLC0415
+        write_sums(out)
+
     def write_readme():
         dataset_readme.write(
             out / "README.md", project=project, tier=tier,
@@ -946,6 +958,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
         ("writing the manifest", manifest),
         ("writing the dataset README", write_readme),
         ("writing the committed sample", write_sample),
+        ("pinning the bytes", pin_bytes),
     ], teardown=stack.down)
 
     return out, state["manifest"]

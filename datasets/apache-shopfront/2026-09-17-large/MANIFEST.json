@@ -2,29 +2,37 @@
   "kind": "logforge-manifest",
   "version": 1,
   "project": "apache-shopfront",
-  "tier": "medium",
-  "scenario_file": "projects/apache-shopfront/scenarios/medium.toml",
-  "seed": 19,
-  "commit": "695e4e1f3c462fcd687f3f4828be7307df2ffb75",
-  "commit_is_clean": false,
-  "started_at": "2026-08-17T05:11:40.574151+00:00",
-  "finished_at": "2026-08-17T05:23:15.465019+00:00",
-  "wall_clock_seconds": 694.891,
-  "base_image_digest": "logforge/apache-shopfront-web@sha256:35bf654fa85510c0e6c66b3616fc3a90555077516c0f3a88c38d4c8bb2a271c1",
-  "lines": 241542,
-  "unmatched_request_ids": 460,
+  "tier": "large",
+  "scenario_file": "projects/apache-shopfront/scenarios/large.toml",
+  "seed": 31,
+  "commit": "283557a47e1b5ce8b7fc3135f92b04945b6f0a7d",
+  "commit_is_clean": true,
+  "source_state": {
+    "commit": "283557a47e1b5ce8b7fc3135f92b04945b6f0a7d",
+    "commit_is_clean": true,
+    "build_outputs_present": [
+      "datasets/apache-shopfront/2026-09-17-medium/",
+      "datasets/apache-shopfront/2026-09-17-small/"
+    ]
+  },
+  "started_at": "2026-09-17T17:08:57.786928+00:00",
+  "finished_at": "2026-09-17T17:50:52.439585+00:00",
+  "wall_clock_seconds": 2514.653,
+  "base_image_digest": "logforge/apache-shopfront-web@sha256:2047aeec94e38efed535ad64a1e93ebd9941672621d226069fbd07b566a15358",
+  "lines": 950483,
+  "unmatched_request_ids": 1608,
   "unparsed_log_lines": 0,
-  "address_fallback_lines": 294,
+  "address_fallback_lines": 910,
   "timestamps": {
     "remapped": true,
     "capture_file": "access.raw.log",
     "capture_truth_file": "truth.raw.jsonl",
-    "start": "2026-03-09T00:02:20.580286+00:00",
-    "end": "2026-03-15T23:54:45.767188+00:00",
-    "span_seconds": 604345.187,
-    "captured_span_seconds": 661.0,
-    "sessions": 7813,
-    "sessions_pushed": 51,
+    "start": "2026-03-09T00:02:25.063937+00:00",
+    "end": "2026-04-08T00:03:53.079836+00:00",
+    "span_seconds": 2592088.016,
+    "captured_span_seconds": 2402.0,
+    "sessions": 32022,
+    "sessions_pushed": 229,
     "description": "Timestamps were rewritten: session starts redrawn from the diurnal and weekly curves, spacing within a session reconstructed from what each request was. Every other byte of every line, and the order of requests within a session, is as captured. access.raw.log is the log Apache wrote."
   },
   "audit": {
@@ -40,8 +48,8 @@
         "measured": {
           "css": 4991,
           "js": 8428,
-          "html": 4633,
-          "image": 59397
+          "html": 4627,
+          "image": 58891
         },
         "threshold": {
           "css": 3000,
@@ -55,7 +63,7 @@
       },
       {
         "name": "round_response_sizes",
-        "measured": 0.0391,
+        "measured": 0.0411,
         "threshold": 0.25,
         "suspicious": false,
         "inconclusive": false,
@@ -63,7 +71,7 @@
       },
       {
         "name": "implausible_rate",
-        "measured": 0.4,
+        "measured": 0.367,
         "threshold": 50.0,
         "suspicious": false,
         "inconclusive": false,
@@ -71,7 +79,7 @@
       },
       {
         "name": "agent_monoculture",
-        "measured": 0.1939,
+        "measured": 0.2518,
         "threshold": 0.55,
         "suspicious": false,
         "inconclusive": false,
@@ -79,7 +87,7 @@
       },
       {
         "name": "uniform_client_volumes",
-        "measured": 4.8482,
+        "measured": 7.7299,
         "threshold": 1.0,
         "suspicious": false,
         "inconclusive": false,
@@ -107,7 +115,7 @@
       },
       {
         "name": "no_malformed_requests",
-        "measured": 106,
+        "measured": 307,
         "threshold": 1,
         "suspicious": false,
         "inconclusive": false,
@@ -123,7 +131,7 @@
       },
       {
         "name": "sequential_client_addresses",
-        "measured": 0.0417,
+        "measured": 0.0199,
         "threshold": 0.75,
         "suspicious": false,
         "inconclusive": false,
@@ -139,16 +147,32 @@
       "mobile-android",
       "tablet"
     ],
-    "requests": 594,
+    "requests": 658,
     "exit_code": 0
+  },
+  "admins": {
+    "addresses": [
+      "203.0.113.61",
+      "203.0.113.62"
+    ],
+    "description": "The shop's own staff doing ordinary administration: an unauthenticated request to an admin path that is answered 302 to the login page, one wrong password, a correct one, signed-in work answered 200, and a session that has expired by the time they come back so the bounce happens again.",
+    "requests": {
+      "203.0.113.61": 9118,
+      "203.0.113.62": 9055
+    },
+    "categories": [
+      "authentication",
+      "browsing"
+    ],
+    "deliberately_not": "access_control"
   },
   "derived_vs_apache_combined": {
     "compared_file": "access.raw.log",
-    "agreed": 241521,
-    "derived_lines": 241542,
-    "apache_lines": 241542,
-    "first_divergence": 2638,
-    "summary": "241521/241542 lines agreed; Apache's own log has 241542 lines; first divergence at line 2638"
+    "agreed": 950458,
+    "derived_lines": 950483,
+    "apache_lines": 950483,
+    "first_divergence": 2462,
+    "summary": "950458/950483 lines agreed; Apache's own log has 950483 lines; first divergence at line 2462"
   },
   "truth_validation_errors": [],
   "tool_runs": [
@@ -160,9 +184,9 @@
       "source_ip": "192.0.2.32",
       "network": "lab_dc",
       "target": "the site root, fingerprinting",
-      "started_at": "2026-08-17T05:11:48.883701+00:00",
-      "finished_at": "2026-08-17T05:11:56.733847+00:00",
-      "seconds": 7.85,
+      "started_at": "2026-09-17T17:09:05.755692+00:00",
+      "finished_at": "2026-09-17T17:09:15.954781+00:00",
+      "seconds": 10.199,
       "exit_code": 0,
       "timed_out": false,
       "requests": 6
@@ -175,9 +199,9 @@
       "source_ip": "198.51.100.31",
       "network": "lab_cloud",
       "target": "/ with dirb's common wordlist",
-      "started_at": "2026-08-17T05:11:48.884465+00:00",
-      "finished_at": "2026-08-17T05:12:53.329889+00:00",
-      "seconds": 64.445,
+      "started_at": "2026-09-17T17:09:05.756226+00:00",
+      "finished_at": "2026-09-17T17:10:14.037021+00:00",
+      "seconds": 68.281,
       "exit_code": 0,
       "timed_out": false,
       "requests": 4619
@@ -190,9 +214,9 @@
       "source_ip": "198.51.100.33",
       "network": "lab_cloud",
       "target": "/ with dirb's common wordlist, at four threads",
-      "started_at": "2026-08-17T05:11:48.886831+00:00",
-      "finished_at": "2026-08-17T05:12:00.196542+00:00",
-      "seconds": 11.31,
+      "started_at": "2026-09-17T17:09:05.756882+00:00",
+      "finished_at": "2026-09-17T17:09:17.594726+00:00",
+      "seconds": 11.838,
       "exit_code": 0,
       "timed_out": false,
       "requests": 4615
@@ -205,9 +229,9 @@
       "source_ip": "198.51.100.32",
       "network": "lab_cloud",
       "target": "the proxy's HTTP port with http-* NSE scripts",
-      "started_at": "2026-08-17T05:11:48.891277+00:00",
-      "finished_at": "2026-08-17T05:12:15.973345+00:00",
-      "seconds": 27.082,
+      "started_at": "2026-09-17T17:09:05.764536+00:00",
+      "finished_at": "2026-09-17T17:09:33.152464+00:00",
+      "seconds": 27.388,
       "exit_code": 0,
       "timed_out": false,
       "requests": 10
@@ -220,12 +244,12 @@
       "source_ip": "192.0.2.31",
       "network": "lab_dc",
       "target": "the planted SQL injection on /search",
-      "started_at": "2026-08-17T05:11:48.892268+00:00",
-      "finished_at": "2026-08-17T05:11:55.491121+00:00",
-      "seconds": 6.599,
+      "started_at": "2026-09-17T17:09:05.765575+00:00",
+      "finished_at": "2026-09-17T17:09:12.946599+00:00",
+      "seconds": 7.181,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 48
+      "requests": 47
     }
   ],
   "campaigns": [

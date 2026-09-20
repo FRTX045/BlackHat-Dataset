@@ -441,15 +441,31 @@ def idor_walk(rng, style, known, start=1, count=10):
 
 
 def forced_browsing(rng, style, known):
-    """Try the admin area as an ordinary customer. Half of it refuses.
+    """Try the admin area anonymously, then with the account we hold.
 
     This is the phase that earns the rest. `/admin/users` and `/admin/orders`
     enforce the role check and answer 403; `/admin/ping` and `/admin/template`
     carry no check at all. Which is which is not something an operator knows in
     advance, and it is what makes attacking them afterwards a decision rather
     than a checklist.
+
+    An anonymous pass cannot tell those two groups apart. `require_login()`
+    answers before `require_admin()` ever runs, so everything with a session
+    check of any kind comes back as the same redirect, and only the routes with
+    no check at all answer at all. What the redirect does say is that the path
+    exists and wants a session -- unlike a 404, which says there is nothing
+    there. So the operator signs in with the customer account it holds and asks
+    the same questions again, and the second pass is where the role check
+    finally answers: 403 on the two hardened routes, and 200 on a landing page
+    an ordinary customer was never meant to see.
+
+    That second pass is new. Without it this docstring described a 403 that
+    appeared nowhere in the 1.25 million lines across the three tiers this
+    repository had shipped, because every forced-browsing request in all of
+    them was anonymous and `require_login()` bounced it first.
     """
     reachable = False
+    bounced = False
     for step in [
         AttackStep("GET", "/admin/", "access_control", "forced", 3.0,
                    note="is there an admin area at all"),
@@ -461,6 +477,29 @@ def forced_browsing(rng, style, known):
                    "forced", 3.0, note="what about this one"),
         AttackStep("GET", "/admin/template?tpl=Hello", "access_control",
                    "forced", 2.5, note="and this one"),
+    ]:
+        outcome = yield step
+        reachable = reachable or _answered(outcome)
+        bounced = bounced or (outcome is not None and outcome.status == 302)
+
+    # Nothing asked for a session, so there is nothing a sign-in would reveal.
+    if not bounced:
+        return frozenset({"admin_reachable"}) if reachable else frozenset()
+
+    yield AttackStep("GET", "/login", "authentication", "signin", 2.5,
+                     note="the redirect says this wants a session")
+    if not _signed_in((yield AttackStep(
+            "POST", "/login", "authentication", "signin", 2.0,
+            body="username=demo&password=demo123"))):
+        return frozenset({"admin_reachable"}) if reachable else frozenset()
+
+    for step in [
+        AttackStep("GET", "/admin/", "access_control", "forced", 2.5,
+                   note="signed in as a customer this time"),
+        AttackStep("GET", "/admin/users", "access_control", "forced", 2.0,
+                   note="does the role check hold for a signed-in customer"),
+        AttackStep("GET", "/admin/orders", "access_control", "forced", 2.0,
+                   note="and here"),
     ]:
         outcome = yield step
         reachable = reachable or _answered(outcome)

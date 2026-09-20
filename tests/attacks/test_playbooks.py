@@ -271,6 +271,61 @@ class TestReactingToWhatComesBack(unittest.TestCase):
                          lambda step: Outcome(403, "", 0.05))
         self.assertNotIn("admin_reachable", facts)
 
+    def test_forced_browsing_signs_in_when_the_admin_area_wants_a_session(self):
+        # The bounce to /login is the answer that tells an operator the path
+        # exists and is protected -- a 404 would say it is not there at all.
+        # An operator holding a customer account uses it, and that is the only
+        # way the role check can ever answer 403.
+        #
+        # Until this test existed the playbook probed anonymously and stopped,
+        # so require_login() bounced it before require_admin() was reached and
+        # the 403 that app/VULNERABILITIES.md promises appeared in none of the
+        # 1.25 million lines across the three shipped tiers.
+        def bounce_unless_unchecked(step):
+            if step.method == "POST" and step.path == "/login":
+                return Outcome(302, "", 0.05)
+            if step.path.startswith(("/admin/ping", "/admin/template")):
+                return Outcome(200, "", 0.05)
+            return Outcome(302, "", 0.05)
+
+        steps, _ = drive_play("forced_browsing", 1, bounce_unless_unchecked)
+        posts = [i for i, s in enumerate(steps)
+                 if s.method == "POST" and s.path == "/login"]
+        self.assertTrue(posts,
+                        "it never signed in, so the role check it came to "
+                        "test could not answer anything but a redirect")
+        after = [s.path for s in steps[posts[0]:]]
+        for path in ("/admin/users", "/admin/orders"):
+            with self.subTest(path=path):
+                self.assertIn(path, after,
+                              f"it signed in and then never probed {path}, "
+                              f"which is where the role check lives")
+
+    def test_forced_browsing_does_not_sign_in_for_an_area_that_is_not_there(self):
+        # A 404 says there is no admin area. Authenticating to reach something
+        # that does not exist is not a thing an operator does, and it would put
+        # credentialed requests in the log for an escalation never attempted.
+        steps = steps_of("forced_browsing", seed=1, respond=nothing_works)
+        self.assertFalse([s for s in steps
+                          if s.method == "POST" and s.path == "/login"],
+                         "it signed in to reach an admin area that answered 404")
+
+    def test_the_sign_in_is_labelled_authentication_not_access_control(self):
+        # The sign-in is an ordinary authentication request; only the probes
+        # that follow it are access_control. Labelling the login as the
+        # escalation would put a successful customer sign-in in the attack
+        # counts of every consumer of this corpus.
+        def bounce_unless_unchecked(step):
+            if step.method == "POST" and step.path == "/login":
+                return Outcome(302, "", 0.05)
+            return Outcome(302, "", 0.05)
+
+        steps, _ = drive_play("forced_browsing", 1, bounce_unless_unchecked)
+        for step in steps:
+            if step.path == "/login":
+                with self.subTest(method=step.method):
+                    self.assertEqual(step.category, "authentication")
+
 
 class TestTwoOperatorsDoNotDoTheSameThing(unittest.TestCase):
     """Six people with the same wordlist, in the same order, is one person.

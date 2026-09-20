@@ -2,36 +2,33 @@
   "kind": "logforge-manifest",
   "version": 1,
   "project": "apache-shopfront",
-  "tier": "medium",
-  "scenario_file": "projects/apache-shopfront/scenarios/medium.toml",
-  "seed": 19,
-  "commit": "283557a47e1b5ce8b7fc3135f92b04945b6f0a7d",
+  "tier": "small",
+  "scenario_file": "projects/apache-shopfront/scenarios/small.toml",
+  "seed": 7,
+  "commit": "c46476d82521e2e53b1d00b1a3735bda2039f10b",
   "commit_is_clean": true,
   "source_state": {
-    "commit": "283557a47e1b5ce8b7fc3135f92b04945b6f0a7d",
-    "commit_is_clean": true,
-    "build_outputs_present": [
-      "datasets/apache-shopfront/2026-09-17-small/"
-    ]
+    "commit": "c46476d82521e2e53b1d00b1a3735bda2039f10b",
+    "commit_is_clean": true
   },
-  "started_at": "2026-09-17T16:57:46.459848+00:00",
-  "finished_at": "2026-09-17T17:08:42.335684+00:00",
-  "wall_clock_seconds": 655.876,
-  "base_image_digest": "logforge/apache-shopfront-web@sha256:e5b5910263760475c0b58666a816322c669d8929956735a64230139df31d2322",
-  "lines": 236293,
-  "unmatched_request_ids": 500,
+  "started_at": "2026-09-18T08:07:16.899546+00:00",
+  "finished_at": "2026-09-18T08:10:54.133383+00:00",
+  "wall_clock_seconds": 217.234,
+  "base_image_digest": "logforge/apache-shopfront-web@sha256:6799dbbb233d306fef13ea8df5f6f3864eda078309a664428e149d94b4916be3",
+  "lines": 64751,
+  "unmatched_request_ids": 194,
   "unparsed_log_lines": 0,
-  "address_fallback_lines": 294,
+  "address_fallback_lines": 94,
   "timestamps": {
     "remapped": true,
     "capture_file": "access.raw.log",
     "capture_truth_file": "truth.raw.jsonl",
-    "start": "2026-03-09T00:02:20.580286+00:00",
-    "end": "2026-03-16T00:02:17.905591+00:00",
-    "span_seconds": 604797.325,
-    "captured_span_seconds": 623.0,
-    "sessions": 8239,
-    "sessions_pushed": 51,
+    "start": "2026-03-09T00:00:48.713548+00:00",
+    "end": "2026-03-10T00:00:56.657901+00:00",
+    "span_seconds": 86407.944,
+    "captured_span_seconds": 200.0,
+    "sessions": 2507,
+    "sessions_pushed": 31,
     "description": "Timestamps were rewritten: session starts redrawn from the diurnal and weekly curves, spacing within a session reconstructed from what each request was. Every other byte of every line, and the order of requests within a session, is as captured. access.raw.log is the log Apache wrote."
   },
   "audit": {
@@ -47,7 +44,7 @@
         "measured": {
           "css": 4991,
           "js": 8428,
-          "html": 4633,
+          "html": 4627,
           "image": 58891
         },
         "threshold": {
@@ -62,7 +59,7 @@
       },
       {
         "name": "round_response_sizes",
-        "measured": 0.0393,
+        "measured": 0.04,
         "threshold": 0.25,
         "suspicious": false,
         "inconclusive": false,
@@ -70,7 +67,7 @@
       },
       {
         "name": "implausible_rate",
-        "measured": 0.391,
+        "measured": 0.749,
         "threshold": 50.0,
         "suspicious": false,
         "inconclusive": false,
@@ -78,7 +75,7 @@
       },
       {
         "name": "agent_monoculture",
-        "measured": 0.2309,
+        "measured": 0.226,
         "threshold": 0.55,
         "suspicious": false,
         "inconclusive": false,
@@ -86,7 +83,7 @@
       },
       {
         "name": "uniform_client_volumes",
-        "measured": 4.7375,
+        "measured": 2.3665,
         "threshold": 1.0,
         "suspicious": false,
         "inconclusive": false,
@@ -103,8 +100,8 @@
           401,
           403,
           404,
+          415,
           429,
-          500,
           504
         ],
         "threshold": "304 and 404 both present",
@@ -114,7 +111,7 @@
       },
       {
         "name": "no_malformed_requests",
-        "measured": 106,
+        "measured": 33,
         "threshold": 1,
         "suspicious": false,
         "inconclusive": false,
@@ -130,7 +127,7 @@
       },
       {
         "name": "sequential_client_addresses",
-        "measured": 0.0409,
+        "measured": 0.0978,
         "threshold": 0.75,
         "suspicious": false,
         "inconclusive": false,
@@ -146,7 +143,7 @@
       "mobile-android",
       "tablet"
     ],
-    "requests": 593,
+    "requests": 616,
     "exit_code": 0
   },
   "admins": {
@@ -156,8 +153,8 @@
     ],
     "description": "The shop's own staff doing ordinary administration: an unauthenticated request to an admin path that is answered 302 to the login page, one wrong password, a correct one, signed-in work answered 200, and a session that has expired by the time they come back so the bounce happens again.",
     "requests": {
-      "203.0.113.61": 2026,
-      "203.0.113.62": 2184
+      "203.0.113.61": 823,
+      "203.0.113.62": 503
     },
     "categories": [
       "authentication",
@@ -167,11 +164,11 @@
   },
   "derived_vs_apache_combined": {
     "compared_file": "access.raw.log",
-    "agreed": 236280,
-    "derived_lines": 236293,
-    "apache_lines": 236293,
-    "first_divergence": 2058,
-    "summary": "236280/236293 lines agreed; Apache's own log has 236293 lines; first divergence at line 2058"
+    "agreed": 64743,
+    "derived_lines": 64751,
+    "apache_lines": 64751,
+    "first_divergence": 851,
+    "summary": "64743/64751 lines agreed; Apache's own log has 64751 lines; first divergence at line 851"
   },
   "truth_validation_errors": [],
   "tool_runs": [
@@ -183,42 +180,42 @@
       "source_ip": "192.0.2.32",
       "network": "lab_dc",
       "target": "the site root, fingerprinting",
-      "started_at": "2026-09-17T16:57:55.139390+00:00",
-      "finished_at": "2026-09-17T16:58:01.868165+00:00",
-      "seconds": 6.729,
+      "started_at": "2026-09-18T08:07:27.031097+00:00",
+      "finished_at": "2026-09-18T08:07:37.966670+00:00",
+      "seconds": 10.936,
       "exit_code": 0,
       "timed_out": false,
       "requests": 6
     },
     {
       "tool": "dirb",
-      "run": "dirb-common",
+      "run": "dirb-small",
       "version": "2.22+dfsg-5",
-      "command": "dirb http://198.51.100.3:8083/ /usr/share/dirb/wordlists/common.txt -S -r -z 10",
-      "source_ip": "198.51.100.31",
+      "command": "dirb http://198.51.100.3:8085/ /usr/share/dirb/wordlists/small.txt -S -r -z 10",
+      "source_ip": "198.51.100.35",
       "network": "lab_cloud",
-      "target": "/ with dirb's common wordlist",
-      "started_at": "2026-09-17T16:57:55.140279+00:00",
-      "finished_at": "2026-09-17T16:59:04.590804+00:00",
-      "seconds": 69.451,
+      "target": "/ with dirb's small wordlist",
+      "started_at": "2026-09-18T08:07:27.031997+00:00",
+      "finished_at": "2026-09-18T08:07:49.022455+00:00",
+      "seconds": 21.99,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 4619
+      "requests": 961
     },
     {
       "tool": "gobuster",
-      "run": "gobuster-common",
+      "run": "gobuster-small",
       "version": "3.5.0-1+b1",
-      "command": "gobuster dir -u http://198.51.100.3:8082/ -w /usr/share/dirb/wordlists/common.txt -t 4 -q --no-color --timeout 10s",
-      "source_ip": "198.51.100.33",
+      "command": "gobuster dir -u http://198.51.100.3:8084/ -w /usr/share/dirb/wordlists/small.txt -t 4 -q --no-color --timeout 10s",
+      "source_ip": "198.51.100.34",
       "network": "lab_cloud",
-      "target": "/ with dirb's common wordlist, at four threads",
-      "started_at": "2026-09-17T16:57:55.142907+00:00",
-      "finished_at": "2026-09-17T16:58:07.790176+00:00",
-      "seconds": 12.647,
+      "target": "/ with dirb's small wordlist, at four threads",
+      "started_at": "2026-09-18T08:07:27.032600+00:00",
+      "finished_at": "2026-09-18T08:07:37.575918+00:00",
+      "seconds": 10.543,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 4615
+      "requests": 961
     },
     {
       "tool": "nmap",
@@ -228,9 +225,9 @@
       "source_ip": "198.51.100.32",
       "network": "lab_cloud",
       "target": "the proxy's HTTP port with http-* NSE scripts",
-      "started_at": "2026-09-17T16:57:55.144939+00:00",
-      "finished_at": "2026-09-17T16:58:23.768437+00:00",
-      "seconds": 28.623,
+      "started_at": "2026-09-18T08:07:27.040101+00:00",
+      "finished_at": "2026-09-18T08:07:55.637097+00:00",
+      "seconds": 28.597,
       "exit_code": 0,
       "timed_out": false,
       "requests": 10
@@ -243,73 +240,122 @@
       "source_ip": "192.0.2.31",
       "network": "lab_dc",
       "target": "the planted SQL injection on /search",
-      "started_at": "2026-09-17T16:57:55.146245+00:00",
-      "finished_at": "2026-09-17T16:58:02.550862+00:00",
-      "seconds": 7.405,
+      "started_at": "2026-09-18T08:07:27.042299+00:00",
+      "finished_at": "2026-09-18T08:07:35.021922+00:00",
+      "seconds": 7.98,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 48
+      "requests": 50
     }
   ],
   "campaigns": [
     {
+      "name": "blind_injector",
+      "expects": true,
+      "objective": "rce",
+      "phases": [
+        "sqli_time_based",
+        "path_traversal",
+        "forced_browsing",
+        "command_injection",
+        "ssti"
+      ],
+      "achieved": [
+        "admin_reachable",
+        "file_read",
+        "rce",
+        "sqli_confirmed"
+      ],
+      "succeeded": true
+    },
+    {
+      "name": "credential_hunter",
+      "expects": true,
+      "objective": "credentials",
+      "phases": [
+        "recon",
+        "brute_force",
+        "credential_stuffing",
+        "password_spray"
+      ],
+      "achieved": [
+        "credentials",
+        "locked_out",
+        "mapped"
+      ],
+      "succeeded": true
+    },
+    {
+      "name": "metadata_hunter",
+      "expects": true,
+      "objective": "ssrf",
+      "phases": [
+        "recon",
+        "forced_browsing",
+        "ssrf"
+      ],
+      "achieved": [
+        "admin_reachable",
+        "mapped",
+        "ssrf_confirmed"
+      ],
+      "succeeded": true
+    },
+    {
       "name": "patient_operator",
-      "succeeds": true,
+      "expects": true,
+      "objective": "data",
       "phases": [
         "recon",
         "directory_enumeration",
         "sqli_probing",
         "sqli_extraction",
         "idor_walk"
-      ]
+      ],
+      "achieved": [
+        "data",
+        "idor_confirmed",
+        "mapped",
+        "session",
+        "sqli_confirmed"
+      ],
+      "succeeded": true
     },
     {
       "name": "webshell_operator",
-      "succeeds": true,
+      "expects": true,
+      "objective": "shell",
       "phases": [
         "recon",
         "forced_browsing",
         "upload_webshell"
-      ]
-    },
-    {
-      "name": "blind_injector",
-      "succeeds": true,
-      "phases": [
-        "sqli_time_based",
-        "path_traversal",
-        "command_injection",
-        "ssti"
-      ]
-    },
-    {
-      "name": "metadata_hunter",
-      "succeeds": true,
-      "phases": [
-        "recon",
-        "forced_browsing",
-        "ssrf"
-      ]
-    },
-    {
-      "name": "credential_hunter",
-      "succeeds": false,
-      "phases": [
-        "recon",
-        "brute_force",
-        "credential_stuffing"
-      ]
-    },
-    {
-      "name": "fruitless_prober",
-      "succeeds": false,
-      "phases": [
-        "recon",
-        "directory_enumeration",
-        "verb_tampering",
-        "session_tampering",
-        "xss"
-      ]
+      ],
+      "achieved": [
+        "admin_reachable",
+        "mapped",
+        "session",
+        "shell",
+        "upload_accepted"
+      ],
+      "succeeded": true
     }
-  ]
+  ],
+  "coverage": {
+    "floor": {
+      "exploitation": 1,
+      "injection": 5,
+      "access_control": 5,
+      "credential_attack": 5,
+      "ssrf": 1,
+      "path_traversal": 1
+    },
+    "achieved": {
+      "exploitation": 9,
+      "injection": 63,
+      "access_control": 29,
+      "credential_attack": 29,
+      "ssrf": 5,
+      "path_traversal": 6
+    }
+  }
 }

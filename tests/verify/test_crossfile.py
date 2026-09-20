@@ -31,14 +31,19 @@ def parse_ip(log_line):
 
 
 def truth_file(records, source="access.log"):
-    header = {"kind": "weblog-truth", "version": 1, "scenario": "x",
+    header = {"kind": "logarc-truth", "version": 1, "scenario": "x",
               "seed": 7, "source_file_id": source, "granularity": "category",
               "generated_at": "2026-03-09T00:00:00+00:00"}
     return "\n".join([json.dumps(header)] + [json.dumps(r) for r in records]) + "\n"
 
 
-def a_dataset(*, remapped=True, break_it=None):
-    """A minimal but complete dataset. `break_it` corrupts one thing."""
+def a_dataset(*, remapped=True, break_it=None, pinned=True):
+    """A minimal but complete dataset. `break_it` corrupts one thing.
+
+    Pinned by default, because every real dataset is: the build writes a
+    SHA256SUMS as its last step. `pinned=False` is for the test that a
+    dataset without one is reported.
+    """
     d = Path(tempfile.mkdtemp())
     ips = ["203.0.113.5", "203.0.113.6", "203.0.113.7", "203.0.113.5"]
 
@@ -78,6 +83,9 @@ def a_dataset(*, remapped=True, break_it=None):
         [{"line_no": i + 1, "client_ip": ip, "category": "browsing",
           "instance_id": f"{ip}-1"}
          for i, ip in enumerate(ips[1:3])], "sample.log"))
+    if pinned:
+        from tools.package import write_sums
+        write_sums(d)
     return d
 
 
@@ -143,15 +151,21 @@ class TestItDoesNotInventProblems(unittest.TestCase):
             [{"line_no": i + 1, "client_ip": parse_ip(x),
               "category": "browsing", "instance_id": f"{parse_ip(x)}-1"}
              for i, x in enumerate(sample)], "sample.log"))
+        from tools.package import write_sums
+        write_sums(d)
 
         self.assertEqual(check_dataset(d), [])
 
     def test_a_missing_optional_file_is_not_a_failure(self):
         # A dataset built before the sample existed, or one whose release
         # assets have been cleaned up, is incomplete rather than corrupt.
+        from tools.package import write_sums
         d = a_dataset()
         (d / "sample.log").unlink()
         (d / "sample.truth.jsonl").unlink()
+        # Re-pinned, because the sums are a claim about what is in the folder
+        # and removing a file changes that claim.
+        write_sums(d)
         self.assertEqual(check_dataset(d), [])
 
     def test_every_problem_names_the_file_it_is_about(self):
@@ -162,6 +176,47 @@ class TestItDoesNotInventProblems(unittest.TestCase):
                                         ("access.log", "access.raw.log",
                                          "sample.log", "truth")),
                                     problem)
+
+
+class TestEveryDatasetPinsItsBytes(unittest.TestCase):
+    """A dataset folder must carry a SHA256SUMS listing its own contents.
+
+    Reported by the project downstream: none of three freshly built folders had
+    one, while the repository's own documentation said every folder does.
+    Checksums were written only by `tools/package.py`, which runs after
+    verification and by hand, so a dataset could be built, verified, committed
+    and consumed with its bytes pinned by nothing.
+
+    That is the same shape as the defect this branch began with -- a property
+    everybody assumed was enforced and which was enforced nowhere. A build
+    whose bytes are not pinned cannot be checked against figures quoted from
+    it, which is the entire reason the figures are quotable.
+    """
+
+    def test_a_dataset_with_no_sums_is_reported(self):
+        problems = check_dataset(a_dataset(pinned=False))
+        self.assertTrue(any("SHA256SUMS" in p for p in problems), problems)
+
+    def test_a_dataset_whose_sums_match_is_accepted(self):
+        self.assertEqual(check_dataset(a_dataset()), [])
+
+    def test_a_file_that_changed_after_it_was_pinned_is_caught(self):
+        # The point of pinning: somebody edits a log and forgets the sums.
+        d = a_dataset()
+        (d / "access.log").write_text("tampered\n")
+        problems = check_dataset(d)
+        self.assertTrue(
+            any("SHA256SUMS" in p and "access.log" in p for p in problems),
+            problems)
+
+    def test_a_sums_file_listing_a_file_that_is_gone_is_caught(self):
+        from tools.package import write_sums
+        d = a_dataset()
+        (d / "error.log").write_text("x\n")
+        write_sums(d)
+        (d / "error.log").unlink()
+        problems = check_dataset(d)
+        self.assertTrue(any("SHA256SUMS" in p for p in problems), problems)
 
 
 if __name__ == "__main__":

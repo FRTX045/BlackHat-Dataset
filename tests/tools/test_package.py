@@ -30,12 +30,12 @@ def a_dataset(*, remapped=True, extra=()):
     (path / "access.apache.log").write_text("line one\nline two\nline three\n")
     (path / "access.tagged.log").write_text("id line one\n")
     (path / "error.log").write_text("[error] something\n")
-    (path / "truth.jsonl").write_text('{"kind":"weblog-truth"}\n')
+    (path / "truth.jsonl").write_text('{"kind":"logarc-truth"}\n')
     (path / "sample.log").write_text("line two\n")
-    (path / "sample.truth.jsonl").write_text('{"kind":"weblog-truth"}\n')
+    (path / "sample.truth.jsonl").write_text('{"kind":"logarc-truth"}\n')
     if remapped:
         (path / "access.raw.log").write_text("raw one\nraw two\nraw three\n")
-        (path / "truth.raw.jsonl").write_text('{"kind":"weblog-truth"}\n')
+        (path / "truth.raw.jsonl").write_text('{"kind":"logarc-truth"}\n')
     for name in extra:
         (path / name).write_text("x\n")
     return path
@@ -155,3 +155,59 @@ class TestItRefusesRatherThanGuesses(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEveryDatasetPinsItsBytes(unittest.TestCase):
+    """A dataset folder must carry a SHA256SUMS whether or not it was packaged.
+
+    Reported by the project downstream: none of three freshly built folders had
+    one, while its own documentation said every folder does. Checksums were
+    written only by `tools/package.py`, which runs after verification and by
+    hand, so a dataset could be built, verified, committed and consumed with
+    its bytes pinned by nothing.
+
+    That is the same shape as the defect this whole branch started from -- a
+    property everybody assumed was enforced, enforced nowhere. A build whose
+    bytes are not pinned cannot be checked against the figures quoted from it.
+    """
+
+    def test_a_build_writes_sums_for_its_contents(self):
+        from tools.package import write_sums
+        d = a_dataset()
+        path = write_sums(d)
+        self.assertTrue(path.is_file())
+        text = path.read_text()
+        for name in ("access.log", "truth.jsonl", "MANIFEST.json",
+                     "sample.log"):
+            with self.subTest(name=name):
+                self.assertIn(name, text)
+
+    def test_the_digests_are_right(self):
+        import hashlib
+        from tools.package import write_sums
+        d = a_dataset()
+        write_sums(d)
+        expected = hashlib.sha256((d / "access.log").read_bytes()).hexdigest()
+        self.assertIn(f"{expected}  access.log\n",
+                      (d / "SHA256SUMS").read_text())
+
+    def test_it_does_not_list_archives_that_do_not_exist(self):
+        from tools.package import write_sums
+        d = a_dataset()
+        write_sums(d)
+        self.assertNotIn(".xz", (d / "SHA256SUMS").read_text())
+
+    def test_it_never_lists_itself(self):
+        from tools.package import write_sums
+        d = a_dataset()
+        write_sums(d)
+        self.assertNotIn("  SHA256SUMS", (d / "SHA256SUMS").read_text())
+
+    def test_packaging_replaces_it_with_one_covering_the_archives(self):
+        from tools.package import package, write_sums
+        d = a_dataset()
+        write_sums(d)
+        package(d)
+        text = (d / "SHA256SUMS").read_text()
+        self.assertIn("access.log.xz", text)
+        self.assertIn("access.log\n", text)

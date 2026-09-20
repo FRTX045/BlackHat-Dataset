@@ -13,6 +13,9 @@ Standard library only, by project rule -- argparse, tomllib, subprocess, json,
 pathlib, datetime and nothing else.
 """
 
+import collections
+import random
+import zlib
 import argparse
 import json
 import shutil
@@ -86,8 +89,39 @@ def load_scenario(path):
     return data
 
 
-def dataset_dir(repo, project, tier, now):
-    return Path(repo) / "datasets" / project / f"{now:%Y-%m-%d}-{tier}"
+def seeded(scenario, seed):
+    """The scenario as the build should read it, with `seed` overriding.
+
+    `seed is None` means no override, so the file decides -- which is what
+    keeps a published dataset rebuildable from its scenario alone. Written as
+    an explicit None check rather than a truth test because 0 is a seed like
+    any other, and `if seed:` would quietly hand a build the scenario's seed
+    while its manifest claimed zero.
+
+    Returns a copy. Mutating the loaded scenario would be harmless here, but
+    the alternative this flag replaced -- rewriting `seed = N` in the toml
+    before each build -- is exactly the failure mode worth staying away from:
+    an interrupted sweep leaving a tracked file holding a seed nobody chose.
+    """
+    if seed is None:
+        return scenario
+    return {**scenario, "seed": seed}
+
+
+def dataset_dir(repo, project, tier, now, seed=None):
+    """Where a build writes. One directory per project, date and tier.
+
+    A seed sweep breaks that: eight builds of one tier on one day all named
+    the same directory and would have overwritten each other, leaving nothing
+    behind but a manifest whose seed is not the one that was asked for. So a
+    build at an overridden seed says so in the name. A build at the
+    scenario's own seed keeps the name it has always had, because that one is
+    a published contract -- the three shipped datasets carry it.
+    """
+    name = f"{now:%Y-%m-%d}-{tier}"
+    if seed is not None:
+        name += f"-s{seed}"
+    return Path(repo) / "datasets" / project / name
 
 
 def run_steps(steps, teardown):
@@ -254,6 +288,75 @@ def tools_that_reached_nothing(records):
     return [r["run"] for r in records if not r["requests"]]
 
 
+#: Never fewer operators than this, however the draw falls. A tier with one
+#: attacker in it is not a weaker dataset, it is a different one.
+MIN_CAMPAIGNS = 3
+
+
+def chosen_campaigns(roster, seed, required=()):
+    """Which of the declared operators actually turn up in this build.
+
+    How many people are attacking a server varies week to week. Running the
+    same cast every time makes the attacker population a constant, which is
+    the one thing it certainly is not in a real log -- and a consumer who
+    learns that population has learned this dataset rather than the web.
+
+    Drawn from the scenario seed, so the choice reproduces. Chosen *from* the
+    roster rather than invented, because compose declares every service up
+    front: a build can decline to start an attacker, never conjure one. Only
+    the chosen subset is launched, so the rule that a source which reached the
+    server zero times must not be recorded as having run still holds.
+
+    `required` names operators the draw may not leave out, because they are the
+    only source of some category the scenario asks for. Measured: a draw that
+    dropped `metadata_hunter` took `ssrf` from five lines to zero and
+    `path_traversal` to one, and per-category scores at those supports are
+    noise. How many attackers turn up may vary; whether a whole class of attack
+    exists in the dataset may not.
+
+    Note what this does *not* do: it fixes the cast, never the outcome. What a
+    required operator achieves is still whatever the application gives it.
+    """
+    roster = sorted(roster)
+    missing = sorted(set(required) - set(roster))
+    if missing:
+        raise BuildError(
+            f"campaign(s) {', '.join(missing)} are required for coverage but "
+            f"are not in the scenario's roster; a scenario cannot guarantee a "
+            f"category from an operator it never declared")
+    if len(roster) <= MIN_CAMPAIGNS:
+        return roster
+    # crc32 rather than hash(): str hashing is salted per process and nothing
+    # here sets PYTHONHASHSEED. This repository has already shipped that bug
+    # once; see "On reproducibility" in docs/methodology.md.
+    rng = random.Random(seed ^ zlib.crc32(b"campaign-roster"))
+    count = rng.randint(max(MIN_CAMPAIGNS, len(roster) // 2), len(roster))
+    optional = [name for name in roster if name not in set(required)]
+    drawn = set(required) | set(
+        rng.sample(optional, max(count - len(set(required)), 0)))
+    return sorted(drawn)
+
+
+def categories_below_floor(counts, floor):
+    """Categories a scenario asked for that the run did not actually produce.
+
+    What a campaign achieves is decided by what the application gives up, not
+    by what the campaign declared, which is the honest arrangement and has a
+    consequence: on an unlucky seed a tier can finish with no exploitation in
+    it at all. That is a true dataset and a useless one, and the difference
+    has to be caught here rather than by whoever downloads it.
+
+    Reported in full rather than first-one-wins, so a build tells you
+    everything it is short of in one go. **Do not answer a shortfall by
+    re-rolling the seed until it passes** -- that is choosing the measurement,
+    which is the thing this repository exists not to do. Change the roster, or
+    write the shortfall down.
+    """
+    return [(name, wanted, counts.get(name, 0))
+            for name, wanted in sorted(floor.items())
+            if counts.get(name, 0) < wanted]
+
+
 def audit_block(findings):
     """The fake-log audit, as the manifest records it.
 
@@ -369,7 +472,8 @@ def build_manifest(*, project, tier, scenario, scenario_path, started_at,
     }
 
 
-def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
+def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
+              seed=None):
     validate_tier(tier)
     started_at = now or datetime.now(timezone.utc)
 
@@ -378,7 +482,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         raise BuildError(f"no project at {project_dir}")
 
     scenario_path = project_dir / "scenarios" / f"{tier}.toml"
-    scenario = load_scenario(scenario_path)
+    scenario = seeded(load_scenario(scenario_path), seed)
 
     logs = project_dir / "server" / "logs"
     ledgers = project_dir / "traffic" / "ledger"
@@ -391,7 +495,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
     #: address, which is what makes labelling by it exact rather than a guess.
     address_fallback = {"203.0.113.6": "reconnaissance"}
 
-    out = dataset_dir(repo, project, tier, started_at)
+    out = dataset_dir(repo, project, tier, started_at, seed)
     out.mkdir(parents=True, exist_ok=True)
 
     stack = Stack(project_dir / "docker-compose.yml", runner)
@@ -435,14 +539,20 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         """
         import concurrent.futures
 
-        campaigns = scenario.get("attacks", {}).get("campaigns", [])
-        if not campaigns:
+        declared = scenario.get("attacks", {}).get("campaigns", [])
+        if not declared:
             return
+        # Not all of them, and not the same ones every time -- but never
+        # without the ones that are the only source of a required category.
+        campaigns = chosen_campaigns(
+            declared, scenario["seed"],
+            required=scenario.get("attacks", {}).get("required", ()))
 
         sys.path.insert(0, str(project_dir / "attacks"))
-        from campaigns import by_name  # noqa: PLC0415 - per-project module
+        from campaigns import by_name, succeeded  # noqa: PLC0415
         state["campaign_outcomes"] = [
-            {"name": name, "succeeds": by_name(name).succeeds,
+            {"name": name, "expects": by_name(name).expects,
+             "objective": by_name(name).objective,
              "phases": list(by_name(name).phases)}
             for name in campaigns]
         pace = scenario.get("attacks", {}).get("pace", 20.0)
@@ -655,7 +765,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             dict(scenario=f"{project}-{tier}", seed=scenario["seed"],
                  source_file_id="access.log",
                  generated_at=started_at.isoformat(),
-                 kind=scenario.get("kind", "weblog-truth")),
+                 kind=scenario.get("kind", "logarc-truth")),
             labeller=categorise, address_fallback=address_fallback)
 
     def remap_clock():
@@ -675,9 +785,17 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             raw = name.replace(".log", ".raw.log").replace(
                 ".jsonl", ".raw.jsonl")
             (out / name).replace(out / raw)
+        # The tool containers are the one thing here nobody paced: `runner.py`
+        # divides an operator's pauses by the pace factor, but `toolruns.py`
+        # just launches dirb. Their captured timing is the true one and the
+        # remap must not redraw it -- measured, dirb's 961 requests took 9
+        # seconds in the capture and 11,533 in the log that shipped.
+        sys.path.insert(0, str(project_dir / "attacks"))
+        from toolruns import TOOL_RUNS  # noqa: PLC0415 - per-project module
         state["remap"] = remap_files(
             out / "access.raw.log", out / "truth.raw.jsonl",
             out / "access.log", out / "truth.jsonl",
+            unpaced=frozenset(run.address for run in TOOL_RUNS),
             start=datetime.fromisoformat(timeline["start"]),
             duration_seconds=timeline["duration_seconds"],
             seed=scenario["seed"])
@@ -704,6 +822,27 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             raise BuildError(
                 "the truth file does not describe the log it ships with:\n  "
                 + "\n  ".join(errors[:20]))
+
+        floor = scenario.get("attacks", {}).get("coverage", {})
+        # Read again rather than reusing `records`: `read_truth` streams, and
+        # `validate_records` above has already walked it to the end. Counting
+        # an exhausted iterator reports zero of everything, which reads
+        # exactly like a run that achieved nothing.
+        _, counted = read_truth(out / "truth.jsonl")
+        counts = collections.Counter(r["category"] for r in counted)
+        short = categories_below_floor(counts, floor)
+        state["coverage"] = {"floor": dict(floor),
+                             "achieved": {name: counts.get(name, 0)
+                                          for name in floor}}
+        if short:
+            missing = "\n  ".join(
+                f"{name}: wanted {wanted}, got {got}"
+                for name, wanted, got in short)
+            raise BuildError(
+                f"this run did not reach the coverage {tier} declares. The "
+                f"campaigns are reactive, so what they achieve depends on "
+                f"what the application gave up -- and this time it gave up "
+                f"less than the scenario needs:\n  {missing}")
 
     def write_sample():
         """A committed slice of the dataset, for eyeballing without a download.
@@ -739,6 +878,18 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             json.dumps(sample_header, separators=(",", ":")) + "\n"
             + "\n".join(renumbered) + "\n", encoding="utf-8")
 
+    def pin_bytes():
+        """Write SHA256SUMS covering what this build produced.
+
+        Last, because it has to hash the finished files. Packaging rewrites it
+        later to cover the archives as well. Before this step existed,
+        checksums were written only by the packaging tool -- so a dataset that
+        was built, verified and committed without being packaged had its bytes
+        pinned by nothing, which three shipped folders demonstrated.
+        """
+        from tools.package import write_sums  # noqa: PLC0415
+        write_sums(out)
+
     def write_readme():
         dataset_readme.write(
             out / "README.md", project=project, tier=tier,
@@ -747,6 +898,10 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             campaigns=state["manifest"].get("campaigns", []))
 
     def manifest():
+        sys.path.insert(0, str(project_dir / "attacks"))
+        from campaigns import (achievements,  # noqa: PLC0415
+                       succeeded as _succeeded)
+
         finished_at = datetime.now(timezone.utc)
         # Captured here rather than at the start: what matters is the tree the
         # build actually ran from, and nothing in a build mutates tracked
@@ -768,6 +923,26 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
             remap=state.get("remap"), tells=state.get("tells", ()),
             browser=state.get("browser") or {}, source=source,
             admins=state.get("admins") or {})
+        # What this run was asked to contain and what it actually contained.
+        # Published rather than merely enforced: a consumer should be able to
+        # see the floor a tier was held to without reading the scenario, and
+        # see how much room there was above it.
+        if state.get("coverage"):
+            state["manifest"]["coverage"] = state["coverage"]
+        # Which operators turned up, and what each came away with. `expects` is
+        # the prediction the campaign was written with; `achieved` is what the
+        # run observed, and they are allowed to disagree.
+        for entry in state["manifest"].get("campaigns", []):
+            ledger = ledgers / f"attack-{entry['name']}.jsonl"
+            if not ledger.exists():
+                continue
+            first = ledger.read_text(encoding="utf-8").splitlines()[:1]
+            if first:
+                facts = json.loads(first[0]).get("achieved") or []
+                entry["achieved"] = achievements(facts)
+                # Not "achieved anything": a run that ends holding only
+                # `locked_out` learned something and succeeded at nothing.
+                entry["succeeded"] = _succeeded(facts)
         (out / "MANIFEST.json").write_text(
             json.dumps(state["manifest"], indent=2) + "\n")
 
@@ -783,6 +958,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None):
         ("writing the manifest", manifest),
         ("writing the dataset README", write_readme),
         ("writing the committed sample", write_sample),
+        ("pinning the bytes", pin_bytes),
     ], teardown=stack.down)
 
     return out, state["manifest"]
@@ -793,10 +969,16 @@ def main(argv=None):
     parser.add_argument("project")
     parser.add_argument("tier", choices=TIERS,
                         help=f"one of {', '.join(TIERS)}")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="build at this seed instead of the scenario's, "
+                             "into a directory named for it. For sweeping one "
+                             "scenario across seeds: a single build cannot "
+                             "say whether what it found is a property of the "
+                             "data or of the cast that seed drew.")
     args = parser.parse_args(argv)
 
     try:
-        out, manifest = run_build(args.project, args.tier)
+        out, manifest = run_build(args.project, args.tier, seed=args.seed)
     except BuildError as exc:
         print(f"build failed: {exc}", file=sys.stderr)
         return 1

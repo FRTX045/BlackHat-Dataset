@@ -215,6 +215,62 @@ services:
       lab_cloud:
         ipv4_address: 198.51.100.23
 
+  # The operators that never recon. Addresses continue the same two
+  # blocks, well clear of the tool runs at .31 and above, which
+  # `ippools.reserve()` hands out and `join.py` labels by address.
+  attacker-cms-bot:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - cms_bot
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-cms_bot.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.24
+  attacker-cve-sweeper:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - cve_sweeper
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-cve_sweeper.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_cloud:
+        ipv4_address: 198.51.100.25
+  attacker-greedy-scraper:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - greedy_scraper
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-greedy_scraper.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.24
+  attacker-api-abuser:
+    image: python:3.12-slim
+    command:
+      - python
+      - /opt/logforge/projects/apache-shopfront/attacks/runner.py
+      - api_abuser
+      - --ledger=/opt/logforge/projects/apache-shopfront/traffic/ledger/attack-api_abuser.jsonl
+    volumes:
+      - ../..:/opt/logforge:ro
+      - ./traffic/ledger:/opt/logforge/projects/apache-shopfront/traffic/ledger
+    networks:
+      lab_dc:
+        ipv4_address: 192.0.2.25
+
   # ------------------------------------------------------------------------
   # Real security tools. One-shot, started with `compose run`, never `up`.
   #

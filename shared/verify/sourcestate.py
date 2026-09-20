@@ -53,6 +53,36 @@ _MAX_PATCH_BYTES = 2 << 20
 OUTPUT_PREFIXES = ("datasets/",)
 
 
+def _unreadable_source(commit):
+    """What to record when git could not answer.
+
+    `_git` returns None only for a command that failed, and an empty porcelain
+    is the empty string, so None means "we do not know" rather than "nothing
+    changed". Those had the same effect until this function existed: a build
+    run where git could not be read recorded
+
+        {"commit": null, "commit_is_clean": true}
+
+    which is the most misleading pair this module can produce. `commit_is_clean`
+    is the one field a consumer checks before trusting the rebuild recipe,
+    nothing else in the manifest contradicts it, and the recipe beside it read
+    `git checkout None`. rebuildability() saw the true and reported no problems,
+    so verify.py called the dataset reproducible.
+
+    This is not an exotic situation. A build from an exported source archive has
+    no .git at all, and the README's own instruction is to rebuild from source.
+    """
+    return {
+        "commit": commit,
+        "commit_is_clean": False,
+        "patch_shipped": False,
+        "patch_omitted_because": (
+            "git could not be read in this build's source tree, so there is "
+            "no commit to check out and no diff to ship; what produced this "
+            "dataset cannot be established from what it carries"),
+    }
+
+
 def source_state(repo, git=None, output_prefixes=OUTPUT_PREFIXES):
     """What the source tree was when this build ran.
 
@@ -81,7 +111,9 @@ def source_state(repo, git=None, output_prefixes=OUTPUT_PREFIXES):
     """
     git = git or _git
     commit = git(repo, "rev-parse", "HEAD")
-    porcelain = git(repo, "status", "--porcelain") or ""
+    porcelain = git(repo, "status", "--porcelain")
+    if commit is None or porcelain is None:
+        return _unreadable_source(commit), None
     lines = [line for line in porcelain.splitlines() if line.strip()]
 
     tracked_changes = [line for line in lines if not line.startswith("??")]
@@ -139,7 +171,10 @@ def rebuild_recipe(state, project, tier):
     that actively misleads: it invites somebody to rebuild and trust what
     comes out.
     """
-    lines = [f"git checkout {state.get('commit')}"]
+    # No commit means no checkout line. `git checkout None` is a command
+    # somebody would paste, and it is worse than saying nothing.
+    commit = state.get("commit")
+    lines = [f"git checkout {commit}"] if commit else []
     if not state.get("commit_is_clean"):
         if state.get("patch_shipped"):
             lines.append(f"git apply {PATCH_NAME}      "
@@ -172,9 +207,16 @@ def rebuildability(manifest, dataset):
 
     problems = []
     if not state.get("patch_shipped"):
+        # Two different failures share this branch, and saying the wrong one is
+        # the same invented cause this module exists to stop: a dirty tree that
+        # shipped no patch, and a tree git could not read at all.
+        cause = ("records no commit, so there is nothing to rebuild from"
+                 if not state.get("commit")
+                 else f"was built from a modified tree and ships no "
+                      f"{PATCH_NAME}, so the recorded commit does not "
+                      f"reproduce it")
         problems.append(
-            f"built from a modified tree and ships no {PATCH_NAME}, so the "
-            f"recorded commit does not reproduce it: "
+            f"{cause}: "
             f"{state.get('patch_omitted_because', 'no patch was recorded')}")
         return problems
 

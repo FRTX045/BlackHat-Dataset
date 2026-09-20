@@ -51,6 +51,15 @@ DIRTY = fake_git({
 })
 
 
+#: Every git command fails. This is an ordinary situation, not a broken one:
+#: a build run from an exported source archive has no .git at all.
+NO_GIT = fake_git({})
+
+#: rev-parse answers and status does not. An empty porcelain means clean; a
+#: failed one means unknown, and the two must not read the same.
+HALF_GIT = fake_git({"rev-parse HEAD": "c" * 40})
+
+
 class TestACleanTree(unittest.TestCase):
 
     def test_it_records_the_commit_and_says_it_is_clean(self):
@@ -102,6 +111,63 @@ class TestADirtyTree(unittest.TestCase):
     def test_the_recipe_warns_about_untracked_files(self):
         recipe = rebuild_recipe(self.state, "apache-shopfront", "medium")
         self.assertIn("notes.txt", recipe)
+
+
+class TestATreeGitCannotRead(unittest.TestCase):
+    """Git failing must not read as a clean tree.
+
+    `commit_is_clean` is the one field a consumer checks before trusting the
+    rebuild recipe, and nothing else in a manifest contradicts it. Recording
+    true here, with a null commit beside it, is the most misleading pair this
+    module can produce -- and it is what it produced until these tests.
+    """
+
+    def state(self, git):
+        return source_state(Path(tempfile.mkdtemp()), git=git)
+
+    def test_a_tree_with_no_git_is_not_recorded_as_clean(self):
+        state, patch = self.state(NO_GIT)
+        self.assertFalse(state["commit_is_clean"],
+                         "a tree git could not read was recorded as clean")
+        self.assertIsNone(patch)
+
+    def test_it_says_why_no_patch_was_shipped(self):
+        state, _ = self.state(NO_GIT)
+        self.assertFalse(state["patch_shipped"])
+        self.assertIn("git", state["patch_omitted_because"])
+
+    def test_the_recipe_does_not_tell_anybody_to_check_out_none(self):
+        # `git checkout None` is a command somebody would paste.
+        state, _ = self.state(NO_GIT)
+        recipe = rebuild_recipe(state, "apache-shopfront", "small")
+        self.assertNotIn("None", recipe)
+        self.assertIn("NOT REBUILDABLE", recipe)
+
+    def test_a_build_with_no_commit_is_not_called_rebuildable(self):
+        state, _ = self.state(NO_GIT)
+        problems = rebuildability({"source_state": state},
+                                  Path(tempfile.mkdtemp()))
+        self.assertTrue(
+            problems,
+            "a build whose source tree git could not read passed the "
+            "rebuildability check, so verify.py would call it reproducible")
+
+    def test_it_does_not_claim_the_tree_was_modified(self):
+        # It was not modified; git could not be read. Saying "built from a
+        # modified tree" about a build with no commit at all is the same kind
+        # of invented cause this module exists to stop.
+        state, _ = self.state(NO_GIT)
+        problems = rebuildability({"source_state": state},
+                                  Path(tempfile.mkdtemp()))
+        self.assertNotIn("modified tree", " ".join(problems))
+
+    def test_a_status_that_failed_is_not_a_status_that_was_empty(self):
+        state, _ = self.state(HALF_GIT)
+        self.assertFalse(
+            state["commit_is_clean"],
+            "a failed `git status` was treated as an empty one, which is the "
+            "difference between 'nothing changed' and 'we do not know'")
+        self.assertEqual(state["commit"], "c" * 40)
 
 
 class TestWhetherADatasetCanBeRebuilt(unittest.TestCase):

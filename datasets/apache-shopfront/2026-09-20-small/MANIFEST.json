@@ -2,37 +2,33 @@
   "kind": "logforge-manifest",
   "version": 1,
   "project": "apache-shopfront",
-  "tier": "large",
-  "scenario_file": "projects/apache-shopfront/scenarios/large.toml",
-  "seed": 31,
+  "tier": "small",
+  "scenario_file": "projects/apache-shopfront/scenarios/small.toml",
+  "seed": 7,
   "commit": "e0bbd52a534bdbcc73537f97ac5c223ce9997c36",
   "commit_is_clean": true,
   "source_state": {
     "commit": "e0bbd52a534bdbcc73537f97ac5c223ce9997c36",
-    "commit_is_clean": true,
-    "build_outputs_present": [
-      "datasets/apache-shopfront/2026-09-20-medium/",
-      "datasets/apache-shopfront/2026-09-20-small/"
-    ]
+    "commit_is_clean": true
   },
-  "started_at": "2026-09-20T15:38:38.285104+00:00",
-  "finished_at": "2026-09-20T16:21:13.083027+00:00",
-  "wall_clock_seconds": 2554.798,
-  "base_image_digest": "logforge/apache-shopfront-web@sha256:b363cc3e60c28c0a10bada03352f424637688d4a6a2718e17075d64f8fb847ba",
-  "lines": 952417,
-  "unmatched_request_ids": 1711,
+  "started_at": "2026-09-20T15:24:13.179193+00:00",
+  "finished_at": "2026-09-20T15:27:00.652298+00:00",
+  "wall_clock_seconds": 167.473,
+  "base_image_digest": "logforge/apache-shopfront-web@sha256:1b0787d6aecd23f01268918ebb139fa54166182a52e55651e78bb6456c1e91fb",
+  "lines": 64738,
+  "unmatched_request_ids": 160,
   "unparsed_log_lines": 0,
-  "address_fallback_lines": 910,
+  "address_fallback_lines": 94,
   "timestamps": {
     "remapped": true,
     "capture_file": "access.raw.log",
     "capture_truth_file": "truth.raw.jsonl",
-    "start": "2026-03-09T00:02:25.063937+00:00",
-    "end": "2026-04-08T00:06:08.766457+00:00",
-    "span_seconds": 2592223.703,
-    "captured_span_seconds": 2441.0,
-    "sessions": 32006,
-    "sessions_pushed": 222,
+    "start": "2026-03-09T00:00:48.713548+00:00",
+    "end": "2026-03-10T00:00:18.793084+00:00",
+    "span_seconds": 86370.08,
+    "captured_span_seconds": 153.0,
+    "sessions": 2494,
+    "sessions_pushed": 40,
     "description": "Timestamps were rewritten: session starts redrawn from the diurnal and weekly curves, spacing within a session reconstructed from what each request was. Every other byte of every line, and the order of requests within a session, is as captured. access.raw.log is the log Apache wrote."
   },
   "audit": {
@@ -63,7 +59,7 @@
       },
       {
         "name": "round_response_sizes",
-        "measured": 0.0411,
+        "measured": 0.0404,
         "threshold": 0.25,
         "suspicious": false,
         "inconclusive": false,
@@ -71,7 +67,7 @@
       },
       {
         "name": "implausible_rate",
-        "measured": 0.367,
+        "measured": 0.75,
         "threshold": 50.0,
         "suspicious": false,
         "inconclusive": false,
@@ -79,7 +75,7 @@
       },
       {
         "name": "agent_monoculture",
-        "measured": 0.252,
+        "measured": 0.2263,
         "threshold": 0.55,
         "suspicious": false,
         "inconclusive": false,
@@ -87,7 +83,7 @@
       },
       {
         "name": "uniform_client_volumes",
-        "measured": 7.7148,
+        "measured": 2.3969,
         "threshold": 1.0,
         "suspicious": false,
         "inconclusive": false,
@@ -104,8 +100,8 @@
           401,
           403,
           404,
+          415,
           429,
-          500,
           504
         ],
         "threshold": "304 and 404 both present",
@@ -115,7 +111,7 @@
       },
       {
         "name": "no_malformed_requests",
-        "measured": 307,
+        "measured": 33,
         "threshold": 1,
         "suspicious": false,
         "inconclusive": false,
@@ -131,7 +127,7 @@
       },
       {
         "name": "sequential_client_addresses",
-        "measured": 0.0194,
+        "measured": 0.0978,
         "threshold": 0.75,
         "suspicious": false,
         "inconclusive": false,
@@ -147,7 +143,7 @@
       "mobile-android",
       "tablet"
     ],
-    "requests": 633,
+    "requests": 610,
     "exit_code": 0
   },
   "admins": {
@@ -157,8 +153,8 @@
     ],
     "description": "The shop's own staff doing ordinary administration: an unauthenticated request to an admin path that is answered 302 to the login page, one wrong password, a correct one, signed-in work answered 200, and a session that has expired by the time they come back so the bounce happens again.",
     "requests": {
-      "203.0.113.61": 9281,
-      "203.0.113.62": 8941
+      "203.0.113.61": 859,
+      "203.0.113.62": 559
     },
     "categories": [
       "authentication",
@@ -168,11 +164,11 @@
   },
   "derived_vs_apache_combined": {
     "compared_file": "access.raw.log",
-    "agreed": 952391,
-    "derived_lines": 952417,
-    "apache_lines": 952417,
-    "first_divergence": 2753,
-    "summary": "952391/952417 lines agreed; Apache's own log has 952417 lines; first divergence at line 2753"
+    "agreed": 64730,
+    "derived_lines": 64738,
+    "apache_lines": 64738,
+    "first_divergence": 969,
+    "summary": "64730/64738 lines agreed; Apache's own log has 64738 lines; first divergence at line 969"
   },
   "truth_validation_errors": [],
   "tool_runs": [
@@ -184,42 +180,42 @@
       "source_ip": "192.0.2.32",
       "network": "lab_dc",
       "target": "the site root, fingerprinting",
-      "started_at": "2026-09-20T15:38:45.792022+00:00",
-      "finished_at": "2026-09-20T15:38:55.740923+00:00",
-      "seconds": 9.949,
+      "started_at": "2026-09-20T15:24:21.146974+00:00",
+      "finished_at": "2026-09-20T15:24:31.819905+00:00",
+      "seconds": 10.673,
       "exit_code": 0,
       "timed_out": false,
       "requests": 6
     },
     {
       "tool": "dirb",
-      "run": "dirb-common",
+      "run": "dirb-small",
       "version": "2.22+dfsg-5",
-      "command": "dirb http://198.51.100.3:8083/ /usr/share/dirb/wordlists/common.txt -S -r -z 10",
-      "source_ip": "198.51.100.31",
+      "command": "dirb http://198.51.100.3:8085/ /usr/share/dirb/wordlists/small.txt -S -r -z 10",
+      "source_ip": "198.51.100.35",
       "network": "lab_cloud",
-      "target": "/ with dirb's common wordlist",
-      "started_at": "2026-09-20T15:38:45.794939+00:00",
-      "finished_at": "2026-09-20T15:39:51.183213+00:00",
-      "seconds": 65.388,
+      "target": "/ with dirb's small wordlist",
+      "started_at": "2026-09-20T15:24:21.148295+00:00",
+      "finished_at": "2026-09-20T15:24:41.526371+00:00",
+      "seconds": 20.378,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 4619
+      "requests": 961
     },
     {
       "tool": "gobuster",
-      "run": "gobuster-common",
+      "run": "gobuster-small",
       "version": "3.5.0-1+b1",
-      "command": "gobuster dir -u http://198.51.100.3:8082/ -w /usr/share/dirb/wordlists/common.txt -t 4 -q --no-color --timeout 10s",
-      "source_ip": "198.51.100.33",
+      "command": "gobuster dir -u http://198.51.100.3:8084/ -w /usr/share/dirb/wordlists/small.txt -t 4 -q --no-color --timeout 10s",
+      "source_ip": "198.51.100.34",
       "network": "lab_cloud",
-      "target": "/ with dirb's common wordlist, at four threads",
-      "started_at": "2026-09-20T15:38:45.796578+00:00",
-      "finished_at": "2026-09-20T15:38:57.982370+00:00",
-      "seconds": 12.186,
+      "target": "/ with dirb's small wordlist, at four threads",
+      "started_at": "2026-09-20T15:24:21.150032+00:00",
+      "finished_at": "2026-09-20T15:24:30.602865+00:00",
+      "seconds": 9.453,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 4615
+      "requests": 961
     },
     {
       "tool": "nmap",
@@ -229,9 +225,9 @@
       "source_ip": "198.51.100.32",
       "network": "lab_cloud",
       "target": "the proxy's HTTP port with http-* NSE scripts",
-      "started_at": "2026-09-20T15:38:45.798440+00:00",
-      "finished_at": "2026-09-20T15:39:12.530595+00:00",
-      "seconds": 26.732,
+      "started_at": "2026-09-20T15:24:21.154750+00:00",
+      "finished_at": "2026-09-20T15:24:48.514465+00:00",
+      "seconds": 27.36,
       "exit_code": 0,
       "timed_out": false,
       "requests": 10
@@ -244,25 +240,15 @@
       "source_ip": "192.0.2.31",
       "network": "lab_dc",
       "target": "the planted SQL injection on /search",
-      "started_at": "2026-09-20T15:38:45.802164+00:00",
-      "finished_at": "2026-09-20T15:38:53.424597+00:00",
-      "seconds": 7.622,
+      "started_at": "2026-09-20T15:24:21.161228+00:00",
+      "finished_at": "2026-09-20T15:24:26.866233+00:00",
+      "seconds": 5.705,
       "exit_code": 0,
       "timed_out": false,
-      "requests": 47
+      "requests": 44
     }
   ],
   "campaigns": [
-    {
-      "name": "api_abuser",
-      "expects": false,
-      "objective": "whatever the API gives up",
-      "phases": [
-        "api_abuse"
-      ],
-      "achieved": [],
-      "succeeded": false
-    },
     {
       "name": "blind_injector",
       "expects": true,
@@ -300,18 +286,6 @@
       "succeeded": true
     },
     {
-      "name": "cve_sweeper",
-      "expects": false,
-      "objective": "anything on the list",
-      "phases": [
-        "cve_sweep"
-      ],
-      "achieved": [
-        "found_path"
-      ],
-      "succeeded": false
-    },
-    {
       "name": "metadata_hunter",
       "expects": true,
       "objective": "ssrf",
@@ -326,6 +300,44 @@
         "ssrf_confirmed"
       ],
       "succeeded": true
+    },
+    {
+      "name": "patient_operator",
+      "expects": true,
+      "objective": "data",
+      "phases": [
+        "recon",
+        "directory_enumeration",
+        "sqli_probing",
+        "sqli_extraction",
+        "idor_walk"
+      ],
+      "achieved": [
+        "data",
+        "idor_confirmed",
+        "mapped",
+        "session",
+        "sqli_confirmed"
+      ],
+      "succeeded": true
+    },
+    {
+      "name": "webshell_operator",
+      "expects": true,
+      "objective": "shell",
+      "phases": [
+        "recon",
+        "forced_browsing",
+        "upload_webshell"
+      ],
+      "achieved": [
+        "admin_reachable",
+        "mapped",
+        "session",
+        "shell",
+        "upload_accepted"
+      ],
+      "succeeded": true
     }
   ],
   "coverage": {
@@ -338,12 +350,12 @@
       "path_traversal": 1
     },
     "achieved": {
-      "exploitation": 2,
-      "injection": 53,
-      "access_control": 23,
-      "credential_attack": 45,
+      "exploitation": 9,
+      "injection": 57,
+      "access_control": 38,
+      "credential_attack": 29,
       "ssrf": 5,
-      "path_traversal": 9
+      "path_traversal": 6
     }
   }
 }

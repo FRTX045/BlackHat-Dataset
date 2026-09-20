@@ -139,8 +139,21 @@ class TestAdminArea(unittest.TestCase):
         compose("down", "-v")
 
     def test_admin_is_not_reachable_when_signed_out(self):
-        status, _ = fetch(f"{BASE}/admin/")
-        self.assertIn(status, ("302", "403"))
+        # A redirect to the login page, carrying where it was going. Not a
+        # refusal: require_login() answers before require_admin() ever runs, so
+        # an anonymous visitor never reaches the role check at all.
+        #
+        # That distinction is the whole reason attack traffic has to sign in
+        # before it can be refused, and this assertion used to accept either
+        # answer -- `assertIn(status, ("302", "403"))` -- so it could not fail
+        # while the forced-browsing playbook produced no 403s in 1.25 million
+        # shipped lines. An assertion that accepts both answers to the question
+        # cannot report the wrong one.
+        status, head = fetch(f"{BASE}/admin/", extra=["-i"])
+        self.assertEqual(status, "302")
+        self.assertIn("location: /login?next=%2fadmin%2f", head.lower(),
+                      "the bounce must say where it was going, because that is "
+                      "what makes it a redirect to sign in rather than a refusal")
 
     def test_the_hardened_admin_routes_refuse_an_ordinary_customer(self):
         # These are where forced-browsing attacks in the dataset fail. A lab

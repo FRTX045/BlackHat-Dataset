@@ -24,12 +24,16 @@ sys.path.insert(0, str(REPO / "projects" / "apache-shopfront" / "attacks"))
 from browser import (BROWSER_PERSONAS, PROXY,  # noqa: E402
                      port_map_entries, target_for)
 from shared.clients.ippools import (ALLOWED_NETWORKS,  # noqa: E402
-                                    ClientPool, is_allowed)
+                                    INFRASTRUCTURE_ADDRESSES, ClientPool,
+                                    is_allowed)
 
 #: Addresses the lab's own containers hold. A persona claiming one of these
 #: would put browser traffic under the server's or the proxy's identity.
-INFRASTRUCTURE = {"203.0.113.2", "203.0.113.3", "203.0.113.4", "203.0.113.6",
-                  "198.51.100.2", "198.51.100.3", "192.0.2.2", "192.0.2.3"}
+#:
+#: This was a hand-written copy that had drifted: it omitted 203.0.113.5, the
+#: browser container's own address, so the one machine most likely to leak its
+#: identity into the data was the one address this did not check.
+INFRASTRUCTURE = INFRASTRUCTURE_ADDRESSES
 
 
 class TestThePersonasAreDeclaredCoherently(unittest.TestCase):

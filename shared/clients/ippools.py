@@ -50,6 +50,29 @@ ALLOWED_NETWORKS = (
     ipaddress.ip_network("100.64.0.0/10"),
 )
 
+#: The addresses the lab's own plumbing holds, taken from
+#: `projects/apache-shopfront/docker-compose.yml` and pinned against it by
+#: `tests/clients/test_ippools.py`.
+#:
+#: Not every container in that file is here. The `attacker-*` and `tool-*`
+#: containers stand in for real visitors and their addresses belong in the
+#: data -- that is what they are for. These nine are the machinery: the server
+#: under test, the tagging proxy, and the three traffic generators.
+#:
+#: Two properties rest on this set and only the first was ever enforced. No
+#: client may claim one of these, or browser traffic would be logged under the
+#: server's own identity. And no request *content* may name one: the shipped
+#: log calls the server `shop.test` everywhere else, so a payload naming it
+#: `203.0.113.2` describes one host two ways and puts the lab's bridge layout
+#: into a field a visitor is supposed to have typed.
+INFRASTRUCTURE_ADDRESSES = frozenset({
+    "203.0.113.2", "198.51.100.2", "192.0.2.2",     # web
+    "203.0.113.3", "198.51.100.3", "192.0.2.3",     # tagproxy
+    "203.0.113.4",                                  # driver
+    "203.0.113.5",                                  # browser
+    "203.0.113.6",                                  # noise
+})
+
 #: Share of requests coming from the recurring heavy clients. Tuned so the
 #: top-10 share lands in the range real access logs show without collapsing
 #: the tail -- see tests/clients/test_ippools.py.

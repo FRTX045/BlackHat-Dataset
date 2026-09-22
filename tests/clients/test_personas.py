@@ -10,9 +10,11 @@ would find, and would be right to distrust the whole dataset over.
 import collections
 import random
 import unittest
+from urllib.parse import unquote_plus
 
-from shared.clients.ippools import ROLES
-from shared.clients.personas import PERSONA_IDENTITY, PERSONAS, journey
+from shared.clients.ippools import INFRASTRUCTURE_ADDRESSES, ROLES
+from shared.clients.personas import (PERSONA_IDENTITY, PERSONAS, SITE,
+                                     journey)
 from shared.clients.useragents import PERSONA_UA_CLASSES
 from shared.truth.writer import CATEGORIES
 
@@ -432,6 +434,58 @@ class TestTheAdminAddresses(unittest.TestCase):
         from browser import BROWSER_PERSONAS
         taken = ({r.address for r in TOOL_RUNS}
                  | {p.address for p in BROWSER_PERSONAS}
-                 | {"203.0.113.2", "203.0.113.3", "203.0.113.4",
-                    "203.0.113.5", "203.0.113.6"})
+                 | INFRASTRUCTURE_ADDRESSES)
         self.assertEqual(set(ADMIN_ADDRESSES) & taken, set())
+
+
+class TestNothingNamesTheLabItself(unittest.TestCase):
+    """No generated request may name a lab container by address.
+
+    Half of this property was already enforced: no *client* may claim an
+    infrastructure address, because browser traffic logged under the server's
+    own identity would be incoherent. Nothing enforced the other half, that no
+    request *content* may name one either, and one step had been quietly
+    breaking it since the admin journey was written.
+
+    It is the same server twice. The shipped log calls it `shop.test` in every
+    Referer; a `url=` parameter calling it `203.0.113.2` names one host two
+    ways and puts this lab's bridge layout into a field a visitor is supposed
+    to have typed.
+
+    What it cost is specific. The benign `import-image` step exists to be the
+    harmless counterpart of the attackers' metadata-hunting version -- the
+    comment on it says so. A bare IP in the parameter is exactly what a rule
+    keying on "IP address in a URL parameter" fires on, so the benign example
+    was indistinguishable from the hostile one on the one feature that
+    separates them, and a downstream detection project measured 73 false
+    alarms off this single step.
+    """
+
+    def test_no_step_names_an_infrastructure_address(self):
+        leaked = {}
+        for persona in PERSONAS:
+            for steps in journeys(persona, count=100):
+                for step in steps:
+                    target = unquote_plus(step.path)
+                    for address in INFRASTRUCTURE_ADDRESSES:
+                        if address in target:
+                            leaked.setdefault((persona, address), step.path)
+        self.assertEqual(
+            {}, leaked,
+            "these requests name a lab container by address, which is not "
+            "something any visitor could have typed: " + "; ".join(
+                f"{persona} -> {address} in {path}"
+                for (persona, address), path in sorted(leaked.items())))
+
+    def test_the_benign_image_import_names_the_site_a_browser_would_show(self):
+        # The positive form of the test above. Absence of an address is not
+        # the property that matters; naming the server the way the address bar
+        # does is, because that is where an administrator gets a URL to paste.
+        imports = [unquote_plus(step.path)
+                   for steps in journeys("admin", count=300)
+                   for step in steps
+                   if step.path.startswith("/admin/import-image")]
+        self.assertTrue(imports, "the admin journey generated no image import")
+        for target in imports:
+            with self.subTest(target=target):
+                self.assertIn(f"url={SITE}/", target)

@@ -29,6 +29,14 @@ PERSONAS = ("casual", "shopper", "returning", "mobile", "crawler", "monitor",
             "admin",
             "scanner")
 
+#: The name the shipped log calls this server, and the only name a generated
+#: request may use for it. Every Referer the driver writes is built from this.
+#: A payload naming the same server another way -- by the bridge address it
+#: happens to answer on inside the lab -- describes one host two ways in a
+#: single log line, and puts this lab's network layout into a field a visitor
+#: is supposed to have typed.
+SITE = "http://shop.test"
+
 #: What opportunistic scanning asks for. These are the paths real internet
 #: background noise hits constantly and this shop has none of them, so they all
 #: 404 -- which is the point. Split by intent: a handful of known-file probes,
@@ -423,8 +431,14 @@ def _admin(rng, catalogue):
         # SSRF surface, which is exactly why a benign example of it matters:
         # the attackers' version points at cloud metadata, and this one does
         # not.
+        #
+        # It names the site the way the address bar does, because that is
+        # where an administrator gets a URL to paste. Naming it by the bridge
+        # address instead made this request carry the one feature that marks
+        # the attackers' version -- a literal IP in the parameter -- and the
+        # benign example stopped being distinguishable from the hostile one.
         steps.append(Step("GET", "/admin/import-image?url=" + quote_plus(
-            "http://203.0.113.2/assets/img/logo.png"),
+            f"{SITE}/assets/img/logo.png"),
             "browsing", "admin-work"))
     if rng.random() < 0.5:
         steps.append(Step("GET", "/admin/orders", "browsing", "admin-work"))

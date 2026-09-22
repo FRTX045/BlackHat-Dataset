@@ -2,7 +2,11 @@ import ipaddress
 import unittest
 from collections import Counter
 
-from shared.clients.ippools import ROLES, ClientPool, is_allowed
+import re
+from pathlib import Path
+
+from shared.clients.ippools import (INFRASTRUCTURE_ADDRESSES, ROLES,
+                                    ClientPool, is_allowed)
 
 
 class TestAddressSpace(unittest.TestCase):
@@ -121,3 +125,50 @@ class TestRoles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheInfrastructureSetMatchesTheLab(unittest.TestCase):
+    """`INFRASTRUCTURE_ADDRESSES` is a hand-written list, so pin it.
+
+    Three hand-written copies of this set existed before this test and one of
+    them had drifted -- it omitted the browser container's own address, which
+    is the machine most likely to leak its identity into the data. A constant
+    that describes the lab has to be checked against the lab.
+    """
+
+    #: The lab's own plumbing. Every other service in the compose file stands
+    #: in for a visitor, and its address is supposed to appear in the data.
+    MACHINERY = {"web", "tagproxy", "driver", "browser", "noise"}
+
+    def compose(self):
+        text = (Path(__file__).resolve().parents[2] / "projects"
+                / "apache-shopfront" / "docker-compose.yml").read_text()
+        owner, service = {}, None
+        for line in text.splitlines():
+            named = re.match(r"^  ([\w-]+):", line)
+            if named:
+                service = named.group(1)
+            address = re.search(r"ipv4_address:\s*(\S+)", line)
+            if address:
+                owner.setdefault(service, set()).add(address.group(1))
+        return owner
+
+    def test_the_compose_file_was_actually_parsed(self):
+        # Without this the two tests below pass on an empty parse.
+        owner = self.compose()
+        self.assertGreater(len(owner), 20, f"only parsed {sorted(owner)}")
+        self.assertEqual(self.MACHINERY, self.MACHINERY & set(owner),
+                         f"missing from compose: {self.MACHINERY - set(owner)}")
+
+    def test_it_holds_every_address_the_lab_machinery_has(self):
+        owner = self.compose()
+        expected = {a for s in self.MACHINERY for a in owner[s]}
+        self.assertEqual(expected, set(INFRASTRUCTURE_ADDRESSES))
+
+    def test_it_holds_no_address_that_stands_in_for_a_visitor(self):
+        # attacker-* and tool-* addresses belong in the data. Listing one here
+        # would quietly delete that traffic from every generated dataset.
+        owner = self.compose()
+        actors = {a for s, addrs in owner.items() if s not in self.MACHINERY
+                  for a in addrs}
+        self.assertEqual(set(), actors & set(INFRASTRUCTURE_ADDRESSES))

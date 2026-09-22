@@ -50,13 +50,15 @@ sys.path.insert(0, "/opt/logforge")
 
 from shared.clients.ippools import ClientPool  # noqa: E402
 from shared.clients.personas import (ADMIN_ADDRESSES,  # noqa: E402
-                                     NO_REFERER, PERSONA_IDENTITY, journey)
+                                     NO_REFERER, PERSONA_IDENTITY, SITE,
+                                     journey)
 from shared.clients.useragents import UserAgentPool  # noqa: E402
 from shared.timeline.sessions import plan_sessions  # noqa: E402
 from shared.truth.ids import new_request_id  # noqa: E402
 
+#: Where to connect. An address, deliberately: Docker's DNS is the only
+#: thing that would resolve a name here, and what goes in the log is `SITE`.
 BASE = "http://203.0.113.2"
-SITE = "http://shop.test"
 ACTOR = "driver"
 
 #: Subresources referenced by a page. Deliberately literal: this is what a

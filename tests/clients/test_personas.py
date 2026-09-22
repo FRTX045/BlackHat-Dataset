@@ -13,8 +13,8 @@ import unittest
 from urllib.parse import unquote_plus
 
 from shared.clients.ippools import INFRASTRUCTURE_ADDRESSES, ROLES
-from shared.clients.personas import (PERSONA_IDENTITY, PERSONAS, SITE,
-                                     journey)
+from shared.clients.personas import (NO_REFERER, PERSONA_IDENTITY,
+                                     PERSONAS, SITE, journey)
 from shared.clients.useragents import PERSONA_UA_CLASSES
 from shared.truth.writer import CATEGORIES
 
@@ -489,3 +489,72 @@ class TestNothingNamesTheLabItself(unittest.TestCase):
         for target in imports:
             with self.subTest(target=target):
                 self.assertIn(f"url={SITE}/", target)
+
+
+class TestTheHttpLibraryClient(unittest.TestCase):
+    """Something benign has to speak through an HTTP library.
+
+    Every request in this corpus carrying a `python-requests`, `curl`, `wget`
+    or `Go-http-client` User-Agent came from a scanner or an attacker. A
+    detector keying on that string alone therefore scored perfectly here, and
+    would have gone on scoring perfectly no matter how wrong it was -- the
+    same defect as `admin_area_redirect` scoring 13 out of 13 in a corpus
+    where no legitimate administrator existed, and the same as the role check
+    that could not answer because nothing ever signed in.
+
+    Real shops of this size are polled constantly by partner systems, price
+    feeds and deploy checks, all of which use exactly those libraries. So the
+    corpus needs one that behaves itself: documented endpoints, no session, no
+    Referer, and nothing it asks for missing.
+    """
+
+    def test_a_benign_persona_presents_an_http_library_user_agent(self):
+        hostile = {"scanner", "attacker"}
+        library = {identity for identity, classes in PERSONA_UA_CLASSES.items()
+                   if identity != "__all__" and "library" in classes}
+        benign = library - hostile
+        self.assertTrue(
+            benign,
+            "every persona presenting an HTTP library is hostile, so a rule "
+            "keying on the User-Agent cannot be wrong in this corpus")
+
+        # And it must be a persona that actually runs. `feed_reader` is mapped
+        # in PERSONA_UA_CLASSES and belongs to nothing in PERSONAS, so it
+        # contributes no traffic at all -- a declaration is not a counter-case.
+        running = {PERSONA_IDENTITY[name][0] for name in PERSONAS}
+        self.assertTrue(
+            benign & running,
+            f"{sorted(benign)} is declared but no persona in PERSONAS uses "
+            f"it, so no request in any build would carry it")
+
+    def test_it_asks_only_for_things_that_are_there(self):
+        # A benign client whose requests 404 is not a counter-case, it is a
+        # second scanner. Every product id it polls has to be real.
+        for steps in journeys("integration", count=200):
+            for step in steps:
+                if step.path.startswith("/api/stock"):
+                    product = int(step.path.split("id=")[1])
+                    with self.subTest(product=product):
+                        self.assertIn(product, PRODUCT_CATEGORY)
+
+    def test_it_never_reaches_for_anything_private(self):
+        forbidden = ("/admin", "/account", "/cart", "/checkout", "/login")
+        for steps in journeys("integration", count=200):
+            for step in steps:
+                with self.subTest(path=step.path):
+                    self.assertFalse(step.path.startswith(forbidden),
+                                     f"an integration asked for {step.path}")
+
+    def test_nothing_it_does_is_labelled_as_probing(self):
+        # If its own traffic were labelled reconnaissance the corpus would be
+        # agreeing with the rule it exists to contradict.
+        allowed = {"api_call", "browsing"}
+        for steps in journeys("integration", count=200):
+            for step in steps:
+                with self.subTest(path=step.path):
+                    self.assertIn(step.category, allowed)
+
+    def test_it_sends_no_referer(self):
+        # A script has no page it came from. Inventing one would be the same
+        # kind of impossible chain the journey tests exist to rule out.
+        self.assertIn("integration", NO_REFERER)

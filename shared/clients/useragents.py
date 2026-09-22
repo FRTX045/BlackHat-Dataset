@@ -125,6 +125,10 @@ PERSONA_UA_CLASSES = {
     # Scanners and attackers present whatever their tooling sends. Real
     # opportunistic scanning is dominated by libraries and stale browser
     # strings, not current builds.
+    # The one benign presenter of an HTTP library. Without it every request
+    # in the corpus carrying one is hostile, and a detector keying on the
+    # User-Agent cannot be wrong here however wrong it is in the world.
+    "api_integration": ("library",),
     "scanner": ("library", "desktop_chrome"),
     "attacker": ("library", "desktop_chrome", "desktop_firefox"),
 }

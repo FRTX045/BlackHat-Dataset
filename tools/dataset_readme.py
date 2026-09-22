@@ -334,6 +334,11 @@ Written as they are, not as one would like them.
   personas apply and execute it — and they are sized against what a production
   origin serves, but a person did not write them. The byte counts Apache
   recorded are genuine either way.
+- **There is one benign HTTP-library client and it does one thing.** The
+  `integration` persona polls `/api/stock` and reads category listings, so a
+  `python-requests` User-Agent is no longer hostile by construction here --
+  but it is a single behaviour, and a detector that learns this exact shape as
+  "the benign library client" has learned this corpus rather than the world.
 - **The product catalogue is one shop.** 130 products across 10 departments,
   so the URL space is smaller than a real retailer's. Tracking parameters and
   on-site search give it a long tail, but the set of *pages* is finite in a way

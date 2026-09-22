@@ -55,11 +55,17 @@ shopper = 0.20
 casual = 0.19
 returning = 0.08
 mobile = 0.10
-crawler = 0.18
-monitor = 0.10
+crawler = 0.16
+monitor = 0.09
 # The shop's own staff. A small share on purpose: a shop this size
 # has one or two people with an admin login, not a workforce.
 admin = 0.03
+# A trade customer's system polling the stock endpoint. It is here for what it
+# contradicts rather than for its volume: without it every HTTP-library
+# User-Agent in the corpus is hostile, so a rule keying on that string cannot
+# be wrong here. Weights are relative, so adding one leaves the proportions
+# among the others exactly as they were.
+integration = 0.03
 scanner = 0.12
 
 [attacks]

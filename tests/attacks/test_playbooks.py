@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import unquote
 
+from shared.clients.ippools import INFRASTRUCTURE_ADDRESSES
 from shared.truth.writer import CATEGORIES
 
 sys.path.insert(
@@ -32,14 +33,18 @@ ATTACK_CATEGORIES = {
 }
 
 
-def drive_play(name, seed, respond):
-    """A playbook and the habits of the operator running it."""
+def drive_play(name, seed, respond, known=frozenset()):
+    """A playbook and the habits of the operator running it.
+
+    `known` is what the campaign has already established by the time this play
+    runs. Most plays ignore it; the ones that need a session use it to decide
+    whether they have to sign in again.
+    """
     rng = random.Random(seed)
-    return drive(PLAYBOOKS[name](rng, operator_style(rng), frozenset()),
-                 respond)
+    return drive(PLAYBOOKS[name](rng, operator_style(rng), known), respond)
 
 
-def steps_of(name, seed=0, respond=nothing_works):
+def steps_of(name, seed=0, respond=nothing_works, known=frozenset()):
     """What a playbook sends. By default, against a server that gives nothing.
 
     A playbook now stops where a real operator would, so the steps it issues
@@ -47,8 +52,7 @@ def steps_of(name, seed=0, respond=nothing_works):
     which run it means.
     """
     rng = random.Random(seed)
-    steps, _ = drive(PLAYBOOKS[name](rng, operator_style(rng),
-                                     frozenset()), respond)
+    steps, _ = drive(PLAYBOOKS[name](rng, operator_style(rng), known), respond)
     return steps
 
 
@@ -166,8 +170,21 @@ class TestLabellingHonesty(unittest.TestCase):
                 self.assertIn("exploitation", cats)
 
     def test_ssrf_steps_are_labelled_ssrf_and_not_something_vaguer(self):
-        cats = {s.category for s in steps_of("ssrf")}
-        self.assertEqual(cats, {"ssrf"})
+        # The importer is session-gated, so this play signs in before it can
+        # attack anything, and those two steps are authentication -- the same
+        # rule every other playbook's sign-in follows. Everything aimed at the
+        # importer itself is still ssrf and nothing vaguer.
+        #
+        # Driven against a server that answers: against one that refuses the
+        # sign-in there is no ssrf step left to label, which is the point of
+        # test_ssrf_stops_when_it_cannot_get_a_session.
+        steps = steps_of("ssrf", respond=everything_works)
+        self.assertEqual({"ssrf"}, {s.category for s in steps
+                                    if "import-image" in s.path})
+        self.assertEqual({"authentication"}, {s.category for s in steps
+                                              if s.path == "/login"})
+        self.assertEqual({"authentication", "ssrf"},
+                         {s.category for s in steps})
 
     def test_credential_attacks_are_labelled_as_such(self):
         for name in ("brute_force", "credential_stuffing"):
@@ -325,6 +342,97 @@ class TestReactingToWhatComesBack(unittest.TestCase):
             if step.path == "/login":
                 with self.subTest(method=step.method):
                     self.assertEqual(step.category, "authentication")
+
+
+    def test_forced_browsing_reports_the_session_it_obtained(self):
+        # It signs in, so it knows something the next play would otherwise
+        # have to find out again. Leaving the fact unpublished meant the SSRF
+        # play that follows it in metadata_hunter had no way to tell whether
+        # it already held a session, and would sign in a second time for no
+        # reason a reader of the log could account for.
+        def bounce_unless_unchecked(step):
+            if step.method == "POST" and step.path == "/login":
+                return Outcome(302, "", 0.05)
+            if step.path.startswith(("/admin/ping", "/admin/template")):
+                return Outcome(200, "", 0.05)
+            return Outcome(302, "", 0.05)
+
+        _, facts = drive_play("forced_browsing", 1, bounce_unless_unchecked)
+        self.assertIn("session", facts)
+
+    def test_ssrf_signs_in_because_the_importer_wants_a_session(self):
+        # `/admin/import-image` is behind require_login() and nothing else.
+        # An anonymous run is answered 302 by every step, so the whole play
+        # would be a column of redirects carrying no evidence of SSRF at all.
+        steps, _ = drive_play("ssrf", 1, everything_works)
+        logins = [s for s in steps if s.path == "/login"]
+        self.assertTrue(logins, "the importer is session-gated and nothing "
+                                "in this play signed in")
+        self.assertEqual(["GET", "POST"], [s.method for s in logins])
+        imports = [i for i, s in enumerate(steps) if "import-image" in s.path]
+        self.assertTrue(imports)
+        self.assertLess(steps.index(logins[-1]), imports[0],
+                        "it reached for the importer before signing in")
+
+    def test_ssrf_does_not_sign_in_again_when_it_already_holds_a_session(self):
+        # forced_browsing runs before it in metadata_hunter and signs in. One
+        # operator with one session is what the log should show.
+        steps, _ = drive_play("ssrf", 1, everything_works,
+                              known=frozenset({"session"}))
+        self.assertEqual([], [s for s in steps if s.path == "/login"])
+        self.assertTrue([s for s in steps if "import-image" in s.path],
+                        "it skipped the sign-in and then did nothing")
+
+    def test_ssrf_stops_when_it_cannot_get_a_session(self):
+        # Same rule as forced_browsing: an operator that cannot authenticate
+        # does not keep firing payloads at a page it is being redirected away
+        # from, and a corpus that showed it doing so would be teaching a shape
+        # real attack traffic does not have.
+        steps, facts = drive_play("ssrf", 1, nothing_works)
+        self.assertEqual([], [s for s in steps if "import-image" in s.path],
+                         "it kept attacking an importer it never reached")
+        self.assertNotIn("ssrf_confirmed", facts)
+
+
+class TestNothingNamesTheLabItself(unittest.TestCase):
+    """No attack step may name a lab container by address.
+
+    The ordinary traffic is held to this in `tests/clients/test_personas.py`
+    and the reason is the same here: the shipped log calls this server
+    `shop.test` in every Referer, so a payload calling it `203.0.113.2` names
+    one host two ways and puts the lab's bridge layout into the data.
+
+    It does not restrict what an attack may target. `127.0.0.1`,
+    `169.254.169.254` and `metadata.google.internal` are the SSRF payloads and
+    they stay exactly as they are -- none of them is a lab container. What is
+    ruled out is naming this application by an address that exists only
+    because of how the lab happens to be wired.
+    """
+
+    def test_no_attack_step_names_an_infrastructure_address(self):
+        leaked = {}
+        for name in PLAYBOOKS:
+            for respond in (nothing_works, everything_works):
+                for step in steps_of(name, respond=respond):
+                    target = unquote(step.path)
+                    for address in INFRASTRUCTURE_ADDRESSES:
+                        if address in target:
+                            leaked.setdefault((name, address), step.path)
+        self.assertEqual(
+            {}, leaked,
+            "these steps name a lab container by address: " + "; ".join(
+                f"{name} -> {address} in {path}"
+                for (name, address), path in sorted(leaked.items())))
+
+    def test_the_ssrf_payloads_that_should_look_odd_still_do(self):
+        # The guard above must not be satisfied by deleting the attack. These
+        # are the targets that make the play an SSRF play.
+        targets = " ".join(unquote(s.path) for s in
+                           steps_of("ssrf", respond=everything_works))
+        for payload in ("169.254.169.254", "metadata.google.internal",
+                        "127.0.0.1", "file:///etc/passwd"):
+            with self.subTest(payload=payload):
+                self.assertIn(payload, targets)
 
 
 class TestTwoOperatorsDoNotDoTheSameThing(unittest.TestCase):

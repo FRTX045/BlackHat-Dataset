@@ -21,6 +21,8 @@ address-based geographic or ASN analysis on this data is meaningless.
 
 import ipaddress
 import random
+import re
+from urllib.parse import unquote_plus
 
 ROLES = ("residential", "mobile", "cloud", "datacenter")
 
@@ -59,12 +61,18 @@ ALLOWED_NETWORKS = (
 #: data -- that is what they are for. These nine are the machinery: the server
 #: under test, the tagging proxy, and the three traffic generators.
 #:
-#: Two properties rest on this set and only the first was ever enforced. No
-#: client may claim one of these, or browser traffic would be logged under the
-#: server's own identity. And no request *content* may name one: the shipped
-#: log calls the server `shop.test` everywhere else, so a payload naming it
-#: `203.0.113.2` describes one host two ways and puts the lab's bridge layout
-#: into a field a visitor is supposed to have typed.
+#: Two properties rest on this set. No client may claim one of these, or
+#: browser traffic would be logged under the server's own identity. And no
+#: request *content* may name one: the shipped log calls the server
+#: `shop.test`, so a request or Referer naming it by address describes one
+#: host two ways and puts the lab's network layout into a field a visitor is
+#: supposed to have authored.
+#:
+#: For a month only the first was enforced, and the second then leaked twice
+#: -- through the benign admin import and through the real-browser Referers --
+#: because it was tested one generator at a time. `tools/verify.py` now fails
+#: any dataset that breaks it (`shared/verify/content.py`), whichever
+#: generator is responsible.
 INFRASTRUCTURE_ADDRESSES = frozenset({
     "203.0.113.2", "198.51.100.2", "192.0.2.2",     # web
     "203.0.113.3", "198.51.100.3", "192.0.2.3",     # tagproxy
@@ -72,6 +80,32 @@ INFRASTRUCTURE_ADDRESSES = frozenset({
     "203.0.113.5",                                  # browser
     "203.0.113.6",                                  # noise
 })
+
+
+#: Whole addresses only: not preceded by a digit or a dot, not followed by a
+#: digit.
+_INFRASTRUCTURE_RE = re.compile(
+    r"(?<![\d.])("
+    + "|".join(re.escape(address) for address in
+               sorted(INFRASTRUCTURE_ADDRESSES, key=len, reverse=True))
+    + r")(?!\d)")
+
+
+def infrastructure_named_in(text):
+    """The lab addresses `text` names, as whole addresses, after URL-decoding.
+
+    Whole addresses, because a substring test is wrong here in a way that is
+    easy to miss: 198.51.100.3 is the tag proxy and 198.51.100.32 an nmap run,
+    203.0.113.2 the server and 203.0.113.234 an ordinary visitor. Decoded,
+    because the leak this was written for travelled as
+    `http%3A%2F%2F203.0.113.2` inside a query string.
+
+    One definition, used by the generator tests and by `tools/verify.py`
+    alike, so the question is asked the same way everywhere it is asked.
+    """
+    if not text:
+        return set()
+    return set(_INFRASTRUCTURE_RE.findall(unquote_plus(text)))
 
 #: Share of requests coming from the recurring heavy clients. Tuned so the
 #: top-10 share lands in the range real access logs show without collapsing

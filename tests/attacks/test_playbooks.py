@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import unquote
 
-from shared.clients.ippools import INFRASTRUCTURE_ADDRESSES
+from shared.clients.ippools import infrastructure_named_in
 from shared.truth.writer import CATEGORIES
 
 sys.path.insert(
@@ -414,10 +414,8 @@ class TestNothingNamesTheLabItself(unittest.TestCase):
         for name in PLAYBOOKS:
             for respond in (nothing_works, everything_works):
                 for step in steps_of(name, respond=respond):
-                    target = unquote(step.path)
-                    for address in INFRASTRUCTURE_ADDRESSES:
-                        if address in target:
-                            leaked.setdefault((name, address), step.path)
+                    for address in infrastructure_named_in(step.path):
+                        leaked.setdefault((name, address), step.path)
         self.assertEqual(
             {}, leaked,
             "these steps name a lab container by address: " + "; ".join(

@@ -12,7 +12,8 @@ import random
 import unittest
 from urllib.parse import unquote_plus
 
-from shared.clients.ippools import INFRASTRUCTURE_ADDRESSES, ROLES
+from shared.clients.ippools import (INFRASTRUCTURE_ADDRESSES, ROLES,
+                                    infrastructure_named_in)
 from shared.clients.personas import (NO_REFERER, PERSONA_IDENTITY,
                                      PERSONAS, SITE, journey)
 from shared.clients.useragents import PERSONA_UA_CLASSES
@@ -466,10 +467,8 @@ class TestNothingNamesTheLabItself(unittest.TestCase):
         for persona in PERSONAS:
             for steps in journeys(persona, count=100):
                 for step in steps:
-                    target = unquote_plus(step.path)
-                    for address in INFRASTRUCTURE_ADDRESSES:
-                        if address in target:
-                            leaked.setdefault((persona, address), step.path)
+                    for address in infrastructure_named_in(step.path):
+                        leaked.setdefault((persona, address), step.path)
         self.assertEqual(
             {}, leaked,
             "these requests name a lab container by address, which is not "

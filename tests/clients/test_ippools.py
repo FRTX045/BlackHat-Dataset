@@ -6,7 +6,8 @@ import re
 from pathlib import Path
 
 from shared.clients.ippools import (INFRASTRUCTURE_ADDRESSES, ROLES,
-                                    ClientPool, is_allowed)
+                                    ClientPool, infrastructure_named_in,
+                                    is_allowed)
 
 
 class TestAddressSpace(unittest.TestCase):
@@ -172,3 +173,44 @@ class TestTheInfrastructureSetMatchesTheLab(unittest.TestCase):
         actors = {a for s, addrs in owner.items() if s not in self.MACHINERY
                   for a in addrs}
         self.assertEqual(set(), actors & set(INFRASTRUCTURE_ADDRESSES))
+
+
+class TestFindingTheLabInText(unittest.TestCase):
+    """One matcher for "does this text name a lab container".
+
+    The generator tests and verify.py both ask this question, and they asked it
+    with `address in text` -- which is wrong in a way that happened not to
+    bite yet. 198.51.100.3 is the tag proxy and 198.51.100.32 is an nmap run,
+    so a substring test calls every nmap probe a leak; 203.0.113.2 is the
+    server and 203.0.113.234 is an ordinary visitor.
+    """
+
+    def test_it_finds_an_address_named_outright(self):
+        self.assertEqual({"203.0.113.3"},
+                         infrastructure_named_in("http://203.0.113.3:8090/"))
+
+    def test_it_finds_one_that_has_been_url_encoded(self):
+        # The benign import carried it as http%3A%2F%2F203.0.113.2%2F...
+        self.assertEqual({"203.0.113.2"}, infrastructure_named_in(
+            "/admin/import-image?url=http%3A%2F%2F203.0.113.2%2Fassets"))
+
+    def test_an_address_that_merely_begins_with_one_is_not_it(self):
+        for text in ("X-Forwarded-For: 198.51.100.32",
+                     "GET / HTTP/1.1 from 203.0.113.234",
+                     "http://192.0.2.21/"):
+            with self.subTest(text=text):
+                self.assertEqual(set(), infrastructure_named_in(text))
+
+    def test_an_address_that_merely_ends_with_one_is_not_it(self):
+        self.assertEqual(set(), infrastructure_named_in("http://1203.0.113.2/"))
+
+    def test_the_attack_payloads_are_not_the_lab(self):
+        for text in ("http://127.0.0.1/admin/users",
+                     "http://169.254.169.254/latest/meta-data/",
+                     "file:///etc/passwd", "http://shop.test/robots.txt"):
+            with self.subTest(text=text):
+                self.assertEqual(set(), infrastructure_named_in(text))
+
+    def test_nothing_is_nothing(self):
+        self.assertEqual(set(), infrastructure_named_in(None))
+        self.assertEqual(set(), infrastructure_named_in(""))

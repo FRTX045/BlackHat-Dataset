@@ -53,6 +53,10 @@ import time
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
+sys.path.insert(0, "/opt/logforge")
+
+from shared.clients.personas import SITE  # noqa: E402
+
 try:  # pragma: no cover - present only inside the browser container
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover
@@ -135,8 +139,43 @@ def port_map_entries():
             for p in BROWSER_PERSONAS}
 
 
+#: The name Chromium is given for the site. Every Referer it writes is built
+#: from the page it is on, so this is what the shipped log will say.
+SITE_HOST = urlsplit(SITE).hostname
+
+
+def resolver_rule_for(persona):
+    """Send this persona's connections for the site to its own proxy port.
+
+    Chromium navigates `http://shop.test/` and never learns where that is:
+    the rule answers the lookup with the tag proxy's address and this
+    persona's port. The route is unchanged -- every request still passes
+    through the proxy and is tagged -- and only the name the browser sees is
+    different, which is the part that ends up in the log.
+    """
+    return f"MAP {SITE_HOST} {PROXY}:{persona.port}"
+
+
+def launch_args(persona):
+    """Chromium's flags for one persona.
+
+    --no-sandbox because the image runs as root, which Chromium's sandbox
+    refuses; the container is the isolation boundary here.
+    --disable-dev-shm-usage because the renderer maps more shared memory than
+    Docker's default allows.
+    """
+    return ["--no-sandbox", "--disable-dev-shm-usage",
+            f"--host-resolver-rules={resolver_rule_for(persona)}"]
+
+
 def target_for(persona):
-    return f"http://{PROXY}:{persona.port}"
+    """Where the persona's browser navigates: the site, by its public name.
+
+    It used to be the tag proxy's own address and port, and so every
+    subresource the browser loaded carried `http://203.0.113.3:8090/` as its
+    Referer -- a URL no visitor to this shop could ever have been on.
+    """
+    return SITE
 
 
 def _agent_for(persona, browser):
@@ -230,18 +269,17 @@ def run(personas, *, seed, pace, headless=True):
     reached = {}
 
     with sync_playwright() as play:
-        # --no-sandbox because the image runs as root, which Chromium's
-        # sandbox refuses. The container is the isolation boundary here.
-        browser = play.chromium.launch(
-            headless=headless,
-            args=["--no-sandbox", "--disable-dev-shm-usage"])
-        try:
-            for persona in personas:
+        for persona in personas:
+            # One browser per persona: the resolver rule routing it to its own
+            # proxy port is a launch flag, not something a context can set.
+            browser = play.chromium.launch(headless=headless,
+                                           args=launch_args(persona))
+            try:
                 base = target_for(persona)
                 agent = _agent_for(persona, browser)
                 landed = 0
-                print(f"==> {persona.name} -> {base} as {persona.address}",
-                      flush=True)
+                print(f"==> {persona.name} -> {base} via {PROXY}:{persona.port}"
+                      f" as {persona.address}", flush=True)
 
                 for visit in range(persona.sessions):
                     # A fresh context per visit is a fresh cache and a fresh
@@ -269,8 +307,8 @@ def run(personas, *, seed, pace, headless=True):
 
                 reached[persona.name] = landed
                 print(f"    {landed} page loads", flush=True)
-        finally:
-            browser.close()
+            finally:
+                browser.close()
 
     return reached
 

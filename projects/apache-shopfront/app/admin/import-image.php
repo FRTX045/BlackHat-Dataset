@@ -7,6 +7,12 @@
  * is also NOT behind the admin role check, so it is reachable by any signed-in
  * customer who finds it. Both facts are recorded in VULNERABILITIES.md.
  *
+ * A session IS required, and that line below is the whole of it. Without it
+ * this page answered 200 to anybody, which is not the weakness documented
+ * here -- it is a different and larger one, and it made every SSRF attempt in
+ * the generated corpus look like an anonymous client reaching an admin
+ * endpoint unchallenged.
+ *
  * Nothing here can reach outside the lab: the container has no route off the
  * three lab networks, so an attempt at a cloud metadata address or an external
  * host fails at the network layer. What lands in the dataset is the attempt,
@@ -14,6 +20,10 @@
  */
 require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/render.php';
+
+// A session, deliberately not a role: the hardened admin routes call
+// require_admin(), and this one stops here. That gap is weakness 4.
+require_login();
 
 $url = (string) ($_GET['url'] ?? '');
 $bytes = null;

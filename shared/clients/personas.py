@@ -26,7 +26,17 @@ from typing import NamedTuple
 from urllib.parse import quote_plus
 
 PERSONAS = ("casual", "shopper", "returning", "mobile", "crawler", "monitor",
+            "admin",
+            "integration",
             "scanner")
+
+#: The name the shipped log calls this server, and the only name a generated
+#: request may use for it. Every Referer the driver writes is built from this.
+#: A payload naming the same server another way -- by the bridge address it
+#: happens to answer on inside the lab -- describes one host two ways in a
+#: single log line, and puts this lab's network layout into a field a visitor
+#: is supposed to have typed.
+SITE = "http://shop.test"
 
 #: What opportunistic scanning asks for. These are the paths real internet
 #: background noise hits constantly and this shop has none of them, so they all
@@ -57,6 +67,13 @@ PERSONA_IDENTITY = {
     "mobile": ("mobile_user", "mobile"),
     "crawler": ("crawler", "cloud"),
     "monitor": ("uptime_monitor", "cloud"),
+    # Staff at a desk on the office connection.
+    "admin": ("admin_browser", "residential"),
+    # A trade customer's own system. Cloud, because that is where a partner's
+    # server sits -- which is also where the opportunistic attackers are, and
+    # that is the point: neither the User-Agent nor the network separates
+    # these two, so anything that tells them apart has to read the requests.
+    "integration": ("api_integration", "cloud"),
     "scanner": ("scanner", "datacenter"),
 }
 
@@ -118,6 +135,13 @@ class Step(NamedTuple):
     #: internal navigation -- the driver fills those in from the page it came
     #: from, because that is where a real Referer comes from.
     referer: str = None
+    #: (username, password) for a POST /login that must use specific
+    #: credentials. Without it the driver picks a random valid customer, which
+    #: is right for an ordinary returning visitor and useless for an
+    #: administrator -- a random customer signing in would be answered 403 by
+    #: the role-gated admin routes, not 200. Also how a deliberately wrong
+    #: password gets into the data.
+    login_as: tuple = None
 
 
 def _category(rng, catalogue):
@@ -148,7 +172,7 @@ def _browse(rng, catalogue, pages, referer=None):
 #: Letting the driver synthesise one for them from the previous page produced a
 #: measured 99% Referer share across the whole log, which no real access log
 #: has.
-NO_REFERER = frozenset({"crawler", "monitor", "scanner"})
+NO_REFERER = frozenset({"crawler", "monitor", "scanner", "integration"})
 
 #: Share of visits that arrive with no Referer at all -- typed in, bookmarked,
 #: opened from an app, or sent with the header stripped. A log where every
@@ -321,6 +345,120 @@ def _mobile(rng, catalogue):
     return steps
 
 
+#: Addresses reserved for the shop's own administrators.
+#:
+#: Fixed rather than drawn, for the same reason the tool runs and the browser
+#: personas have fixed addresses: the manifest names them, so a later reader
+#: can tell this traffic was deliberate rather than a labelling slip. Low in
+#: the residential range, clear of the lab's own containers and below the block
+#: `ippools` draws its recurring clients from, so the session driver can never
+#: hand one of these to an ordinary visitor.
+ADMIN_ADDRESSES = ("203.0.113.61", "203.0.113.62")
+
+#: What the administrators do, for the manifest to record in words.
+ADMIN_DESCRIPTION = (
+    "The shop's own staff doing ordinary administration: an unauthenticated "
+    "request to an admin path that is answered 302 to the login page, one "
+    "wrong password, a correct one, signed-in work answered 200, and a "
+    "session that has expired by the time they come back so the bounce "
+    "happens again.")
+
+
+def _admin_user(catalogue):
+    """The seeded account with the admin role, and its password.
+
+    Taken from the catalogue the seeder publishes rather than hardcoded, so a
+    change of seed or of the account list cannot leave this journey signing in
+    as somebody who no longer exists.
+    """
+    for user in catalogue.get("users", []):
+        if user.get("role") == "admin":
+            return user["username"], user["password"]
+    return None
+
+
+def _admin(rng, catalogue):
+    """One of the shop's staff doing ordinary administration.
+
+    This exists because of a gap a downstream detection project measured and
+    reported: every request to an admin path in this corpus came from an
+    attacker, so a rule that flags `GET /admin -> 302` scored perfectly and
+    would have scored perfectly whether or not it also flagged innocent
+    people. A measurement that cannot fail is not evidence.
+
+    A redirect away from an admin path is not evidence of anything on its own.
+    It is what every cookie-session admin panel answers anybody not signed in
+    yet, **including the owner of the shop**:
+
+        GET /admin/    -> 302 to /login      the owner, not yet signed in
+        POST /login    -> 302 to /admin
+        GET /admin/    -> 200                signed in, ordinary work
+
+    The first line is indistinguishable in an access log from somebody
+    rattling the handle. So the unauthenticated request is the point of this
+    journey and is never skipped -- starting from an already-authenticated
+    session would leave the corpus exactly as unable to tell the two cases
+    apart as it was before.
+
+    **Labelled `authentication` and `browsing`, never `access_control`.** That
+    is the whole value of it. `access_control` is what the attackers' admin
+    requests carry, and putting these under the same category would mean the
+    corpus still cannot distinguish a legitimate administrator from a forced
+    browsing attempt, and nothing would have been gained.
+    """
+    credentials = _admin_user(catalogue)
+    if credentials is None:
+        # No admin account in this catalogue: emit nothing rather than a
+        # journey that cannot succeed and would put misleading 403s in the log.
+        return []
+
+    landing = rng.choice(("/admin/", "/admin/orders", "/admin/users"))
+    steps = [
+        # The bounce. 302 to /login?next=<landing>, and the reason this
+        # journey exists.
+        Step("GET", landing, "authentication", "signin"),
+        Step("GET", f"/login?next={quote_plus(landing)}", "authentication",
+             "signin"),
+        # A wrong password first. Real people mistype, and a corpus where every
+        # legitimate sign-in succeeds on the first attempt cannot tell a typo
+        # from the start of a credential attack.
+        Step("POST", "/login", "authentication", "signin",
+             login_as=(credentials[0], "wrong-" + str(rng.randrange(100, 999)))),
+        Step("POST", "/login", "authentication", "signin",
+             login_as=credentials),
+        # Arrived. Ordinary work from here, answered 200.
+        Step("GET", landing, "browsing", "admin-work"),
+    ]
+    for path in rng.sample(["/admin/orders", "/admin/users", "/admin/"],
+                           rng.randint(1, 3)):
+        steps.append(Step("GET", path, "browsing", "admin-work"))
+    if rng.random() < 0.45:
+        # Importing a product image is ordinary administration. It is also the
+        # SSRF surface, which is exactly why a benign example of it matters:
+        # the attackers' version points at cloud metadata, and this one does
+        # not.
+        #
+        # It names the site the way the address bar does, because that is
+        # where an administrator gets a URL to paste. Naming it by the bridge
+        # address instead made this request carry the one feature that marks
+        # the attackers' version -- a literal IP in the parameter -- and the
+        # benign example stopped being distinguishable from the hostile one.
+        steps.append(Step("GET", "/admin/import-image?url=" + quote_plus(
+            f"{SITE}/assets/img/logo.png"),
+            "browsing", "admin-work"))
+    if rng.random() < 0.5:
+        steps.append(Step("GET", "/admin/orders", "browsing", "admin-work"))
+
+    # The session ends, and they come back to find it gone. The second bounce
+    # is the same shape as the first and is the case an analyst is most likely
+    # to mistake for an attacker returning.
+    if rng.random() < 0.55:
+        steps.append(Step("GET", "/logout", "authentication", "signout"))
+        steps.append(Step("GET", rng.choice(("/admin/", "/admin/orders")),
+                          "authentication", "expired"))
+    return steps
+
+
 def _crawler(rng, catalogue):
     # Asks for robots.txt first and honours it: a well-behaved bot never
     # touches /account/, /admin/, /cart, /checkout or /api/.
@@ -345,6 +483,41 @@ def _monitor(rng, catalogue):
             for _ in range(rng.randint(1, 2))]
 
 
+def _integration(rng, catalogue):
+    """A trade customer's own system, polling the public API on a timer.
+
+    This is the counter-case for "an HTTP library is hostile". Before it,
+    every `python-requests`, `curl`, `Wget` and `Go-http-client` line in the
+    corpus belonged to a scanner or an attacker, so a rule keying on the
+    User-Agent alone scored perfectly here -- and would have gone on scoring
+    perfectly however wrong it was. That is the same defect as a rule for
+    `GET /admin -> 302` in a corpus with no legitimate administrator, and the
+    same as a role check that never answered because nothing ever signed in.
+
+    Every shop this size is polled by partner systems, price feeds and deploy
+    checks, and all of them speak through exactly these libraries.
+
+    So it behaves the way an integration behaves. It reads the public
+    catalogue and the public stock endpoint and nothing else. It holds no
+    session, because none of that needs one. It sends no Referer, because a
+    script has no page it came from. And every id it asks about is one it has
+    just been told exists, so none of its requests 404 -- a benign client
+    whose traffic is a column of misses is not a counter-case, it is a second
+    scanner.
+    """
+    category = _category(rng, catalogue)
+    products = rng.sample(category["products"],
+                          min(len(category["products"]), rng.randint(2, 6)))
+    steps = []
+    if rng.random() < 0.4:
+        # Some of them re-read the category first to see what is listed now.
+        steps.append(Step("GET", f"/c/{category['slug']}", "browsing",
+                          "catalogue"))
+    steps += [Step("GET", f"/api/stock?id={product}", "api_call", "poll")
+              for product in products]
+    return steps
+
+
 def _scanner(rng, catalogue):
     """Opportunistic background scanning: known files, then a sweep.
 
@@ -365,8 +538,10 @@ _PLANNERS = {
     "shopper": _shopper,
     "returning": _returning,
     "mobile": _mobile,
+    "admin": _admin,
     "crawler": _crawler,
     "monitor": _monitor,
+    "integration": _integration,
     "scanner": _scanner,
 }
 

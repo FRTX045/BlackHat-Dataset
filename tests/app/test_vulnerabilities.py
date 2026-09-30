@@ -110,19 +110,30 @@ class TestPlantedWeaknesses(unittest.TestCase):
     # 4 -- SSRF in the image importer ------------------------------------
 
     def test_the_importer_fetches_whatever_host_it_is_given(self):
-        status, body = fetch(
-            f"{BASE}/admin/import-image?url="
-            f"{quote('http://203.0.113.2/robots.txt')}")
-        self.assertEqual(status, "200")
+        # Still an address rather than a name, because "whatever host it is
+        # given" is the claim and a literal IP is the starkest form of it.
+        #
+        # Signed in as an ordinary customer, which is the weakness rather than
+        # a way around it: the importer is behind require_login() and no role
+        # check at all. It used to be behind neither, so this passed without a
+        # session and the corpus showed anonymous clients reaching an admin
+        # endpoint unchallenged.
+        out = as_user(
+            f"curl -s -b {JAR} -o /tmp/b -w '%{{http_code}}' "
+            f"'{BASE}/admin/import-image?url="
+            f"{quote('http://203.0.113.2/robots.txt')}'; echo; cat /tmp/b")
+        status, _, body = out.partition("\n")
+        self.assertEqual(status.strip(), "200")
         self.assertIn("Fetched", body)
 
     def test_an_unreachable_target_answers_504_rather_than_500(self):
         # Cloud metadata is unroutable from the lab, so the attempt fails at
         # the network layer. The attempt is what lands in the dataset.
-        status, _ = fetch(
-            f"{BASE}/admin/import-image?url="
-            f"{quote('http://169.254.169.254/latest/meta-data/')}")
-        self.assertEqual(status, "504")
+        out = as_user(
+            f"curl -s -b {JAR} -o /dev/null -w '%{{http_code}}' "
+            f"'{BASE}/admin/import-image?url="
+            f"{quote('http://169.254.169.254/latest/meta-data/')}'")
+        self.assertEqual(out.strip(), "504")
 
     # 5 -- Upload bypass ending in a webshell ----------------------------
 

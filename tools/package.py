@@ -100,6 +100,46 @@ def _compress(source, target):
             out.write(block)
 
 
+def write_sums(dataset, out_dir=None, archives=()):
+    """Pin this dataset's bytes, whether or not it has been packaged.
+
+    Called at the end of every build, and again by `package()` once the
+    archives exist. It exists because three freshly built folders shipped with
+    no SHA256SUMS at all while the repository's documentation said every folder
+    has one: checksums were written only here, by a step that runs after
+    verification and by hand, so a dataset could be built, verified, committed
+    and consumed with its bytes pinned by nothing.
+
+    A checksum over an archive proves a download arrived. A checksum over the
+    contents proves the dataset is the one its manifest describes, and it
+    survives recompression -- so the contents come first and are written even
+    when there are no archives.
+    """
+    dataset = Path(dataset)
+    out_dir = Path(out_dir) if out_dir else dataset
+
+    lines = ["# Contents. These are the bytes the build produced and the",
+             "# manifest describes.", ""]
+    for source in assets_for(dataset):
+        lines.append(f"{_digest(source)}  {source.name}")
+
+    if archives:
+        lines += ["", "# Archives, as downloaded.", ""]
+        for archive in archives:
+            lines.append(f"{_digest(archive)}  {Path(archive).name}")
+
+    present = [name for name in COMMITTED if (dataset / name).is_file()]
+    if present:
+        lines += ["", "# Also in the repository, checksummed so a release can",
+                  "# be verified without a git checkout.", ""]
+        for name in present:
+            lines.append(f"{_digest(dataset / name)}  {name}")
+
+    path = out_dir / SUMS_NAME
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def package(dataset, out_dir=None):
     dataset = Path(dataset)
     out_dir = Path(out_dir) if out_dir else dataset
@@ -119,27 +159,8 @@ def package(dataset, out_dir=None):
         original += source.stat().st_size
         compressed += target.stat().st_size
 
-    # Contents first, then archives, then what the repository carries. A
-    # consumer checking after decompression reads the top of the file.
-    lines = ["# Contents, after decompression. These are the bytes the build",
-             "# produced and the manifest describes.",
-             ""]
-    for source in assets_for(dataset):
-        lines.append(f"{_digest(source)}  {source.name}")
-
-    lines += ["", "# Archives, as downloaded.", ""]
-    for archive in archives:
-        lines.append(f"{_digest(archive)}  {archive.name}")
-
-    present = [name for name in COMMITTED if (dataset / name).is_file()]
-    if present:
-        lines += ["", "# Also in the repository, checksummed so a release can",
-                  "# be verified without a git checkout.", ""]
-        for name in present:
-            lines.append(f"{_digest(dataset / name)}  {name}")
-
-    sums_path = out_dir / SUMS_NAME
-    sums_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Rewritten now that the archives exist, so one file covers both.
+    sums_path = write_sums(dataset, out_dir, archives=archives)
 
     return PackageReport(dataset=dataset, archives=tuple(archives),
                          original_bytes=original, compressed_bytes=compressed,

@@ -21,7 +21,7 @@ Stdlib only.
 """
 
 import collections
-import json
+import hashlib
 
 from shared.truth.reader import TruthFormatError, read_truth
 from shared.truth.validate import validate_records
@@ -137,6 +137,47 @@ def check_dataset(dataset):
             "by construction and this means the sort did not happen")
 
     problems.extend(_check_sample(dataset, shipped))
+    problems.extend(_check_sums(dataset))
+    return problems
+
+
+def _check_sums(dataset):
+    """Every dataset must pin its own bytes, and the pins must still hold.
+
+    Three freshly built folders shipped without a SHA256SUMS while the
+    repository documented that every folder has one, because checksums were
+    written only by the packaging step -- which runs after verification, by
+    hand. A build whose bytes are not pinned cannot be checked against the
+    figures quoted from it.
+    """
+    path = dataset / "SHA256SUMS"
+    if not path.exists():
+        return ["SHA256SUMS is missing, so nothing pins this dataset's bytes"]
+
+    problems = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        digest, _, name = line.partition("  ")
+        name = name.strip()
+        if len(digest) != 64 or not name:
+            problems.append(f"SHA256SUMS has a line it cannot mean: {line[:60]}")
+            continue
+        target = dataset / name
+        if not target.exists():
+            # Archives are release assets and are legitimately absent from a
+            # working tree; anything else listed and missing is a problem.
+            if name.endswith((".xz", ".zst", ".gz")):
+                continue
+            problems.append(
+                f"SHA256SUMS lists {name}, which is not in the dataset")
+            continue
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        if actual != digest:
+            problems.append(
+                f"SHA256SUMS says {name} is {digest[:12]} but it is "
+                f"{actual[:12]}: the file changed after it was pinned")
     return problems
 
 

@@ -2,7 +2,12 @@ import ipaddress
 import unittest
 from collections import Counter
 
-from shared.clients.ippools import ROLES, ClientPool, is_allowed
+import re
+from pathlib import Path
+
+from shared.clients.ippools import (INFRASTRUCTURE_ADDRESSES, ROLES,
+                                    ClientPool, infrastructure_named_in,
+                                    is_allowed)
 
 
 class TestAddressSpace(unittest.TestCase):
@@ -121,3 +126,91 @@ class TestRoles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheInfrastructureSetMatchesTheLab(unittest.TestCase):
+    """`INFRASTRUCTURE_ADDRESSES` is a hand-written list, so pin it.
+
+    Three hand-written copies of this set existed before this test and one of
+    them had drifted -- it omitted the browser container's own address, which
+    is the machine most likely to leak its identity into the data. A constant
+    that describes the lab has to be checked against the lab.
+    """
+
+    #: The lab's own plumbing. Every other service in the compose file stands
+    #: in for a visitor, and its address is supposed to appear in the data.
+    MACHINERY = {"web", "tagproxy", "driver", "browser", "noise"}
+
+    def compose(self):
+        text = (Path(__file__).resolve().parents[2] / "projects"
+                / "apache-shopfront" / "docker-compose.yml").read_text()
+        owner, service = {}, None
+        for line in text.splitlines():
+            named = re.match(r"^  ([\w-]+):", line)
+            if named:
+                service = named.group(1)
+            address = re.search(r"ipv4_address:\s*(\S+)", line)
+            if address:
+                owner.setdefault(service, set()).add(address.group(1))
+        return owner
+
+    def test_the_compose_file_was_actually_parsed(self):
+        # Without this the two tests below pass on an empty parse.
+        owner = self.compose()
+        self.assertGreater(len(owner), 20, f"only parsed {sorted(owner)}")
+        self.assertEqual(self.MACHINERY, self.MACHINERY & set(owner),
+                         f"missing from compose: {self.MACHINERY - set(owner)}")
+
+    def test_it_holds_every_address_the_lab_machinery_has(self):
+        owner = self.compose()
+        expected = {a for s in self.MACHINERY for a in owner[s]}
+        self.assertEqual(expected, set(INFRASTRUCTURE_ADDRESSES))
+
+    def test_it_holds_no_address_that_stands_in_for_a_visitor(self):
+        # attacker-* and tool-* addresses belong in the data. Listing one here
+        # would quietly delete that traffic from every generated dataset.
+        owner = self.compose()
+        actors = {a for s, addrs in owner.items() if s not in self.MACHINERY
+                  for a in addrs}
+        self.assertEqual(set(), actors & set(INFRASTRUCTURE_ADDRESSES))
+
+
+class TestFindingTheLabInText(unittest.TestCase):
+    """One matcher for "does this text name a lab container".
+
+    The generator tests and verify.py both ask this question, and they asked it
+    with `address in text` -- which is wrong in a way that happened not to
+    bite yet. 198.51.100.3 is the tag proxy and 198.51.100.32 is an nmap run,
+    so a substring test calls every nmap probe a leak; 203.0.113.2 is the
+    server and 203.0.113.234 is an ordinary visitor.
+    """
+
+    def test_it_finds_an_address_named_outright(self):
+        self.assertEqual({"203.0.113.3"},
+                         infrastructure_named_in("http://203.0.113.3:8090/"))
+
+    def test_it_finds_one_that_has_been_url_encoded(self):
+        # The benign import carried it as http%3A%2F%2F203.0.113.2%2F...
+        self.assertEqual({"203.0.113.2"}, infrastructure_named_in(
+            "/admin/import-image?url=http%3A%2F%2F203.0.113.2%2Fassets"))
+
+    def test_an_address_that_merely_begins_with_one_is_not_it(self):
+        for text in ("X-Forwarded-For: 198.51.100.32",
+                     "GET / HTTP/1.1 from 203.0.113.234",
+                     "http://192.0.2.21/"):
+            with self.subTest(text=text):
+                self.assertEqual(set(), infrastructure_named_in(text))
+
+    def test_an_address_that_merely_ends_with_one_is_not_it(self):
+        self.assertEqual(set(), infrastructure_named_in("http://1203.0.113.2/"))
+
+    def test_the_attack_payloads_are_not_the_lab(self):
+        for text in ("http://127.0.0.1/admin/users",
+                     "http://169.254.169.254/latest/meta-data/",
+                     "file:///etc/passwd", "http://shop.test/robots.txt"):
+            with self.subTest(text=text):
+                self.assertEqual(set(), infrastructure_named_in(text))
+
+    def test_nothing_is_nothing(self):
+        self.assertEqual(set(), infrastructure_named_in(None))
+        self.assertEqual(set(), infrastructure_named_in(""))

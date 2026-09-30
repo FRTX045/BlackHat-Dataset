@@ -139,8 +139,46 @@ class TestAdminArea(unittest.TestCase):
         compose("down", "-v")
 
     def test_admin_is_not_reachable_when_signed_out(self):
-        status, _ = fetch(f"{BASE}/admin/")
-        self.assertIn(status, ("302", "403"))
+        # A redirect to the login page, carrying where it was going. Not a
+        # refusal: require_login() answers before require_admin() ever runs, so
+        # an anonymous visitor never reaches the role check at all.
+        #
+        # That distinction is the whole reason attack traffic has to sign in
+        # before it can be refused, and this assertion used to accept either
+        # answer -- `assertIn(status, ("302", "403"))` -- so it could not fail
+        # while the forced-browsing playbook produced no 403s in 1.25 million
+        # shipped lines. An assertion that accepts both answers to the question
+        # cannot report the wrong one.
+        status, head = fetch(f"{BASE}/admin/", extra=["-i"])
+        self.assertEqual(status, "302")
+        self.assertIn("location: /login?next=%2fadmin%2f", head.lower(),
+                      "the bounce must say where it was going, because that is "
+                      "what makes it a redirect to sign in rather than a refusal")
+
+    def test_the_importer_wants_a_session_even_though_it_wants_no_role(self):
+        # `import-image.php` says in its own docblock, and VULNERABILITIES.md
+        # says in section 4, that this endpoint is reachable by "any signed-in
+        # customer". It required no sign-in at all: it pulled in auth.php and
+        # never called require_login(), so the property was written down twice
+        # and enforced nowhere.
+        #
+        # It matters beyond tidiness. Every SSRF attempt in the corpus was
+        # answered 200 without a session, so the traffic showed an anonymous
+        # client reaching an admin endpoint -- which is not the weakness this
+        # section documents, and not a shape a real deployment produces.
+        status, head = fetch(f"{BASE}/admin/import-image", extra=["-i"])
+        self.assertEqual(status, "302")
+        self.assertIn("location: /login?next=%2fadmin%2fimport-image",
+                      head.lower())
+
+    def test_an_ordinary_customer_reaches_the_importer(self):
+        # The other half, and the reason the fix above must not become
+        # require_admin(). Weakness 4 is that the role check is missing here;
+        # a customer reaching it is the vulnerability working as documented.
+        out = login_then(*USER,
+                         f"curl -s -o /dev/null -b {JAR} "
+                         f"-w '%{{http_code}}' '{BASE}/admin/import-image'")
+        self.assertEqual(out.strip(), "200")
 
     def test_the_hardened_admin_routes_refuse_an_ordinary_customer(self):
         # These are where forced-browsing attacks in the dataset fail. A lab

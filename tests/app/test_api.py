@@ -95,9 +95,16 @@ class TestUploadAndImport(unittest.TestCase):
         # Server-side fetch of a user-supplied URL: the SSRF surface. Pointed
         # at the lab's own application, which is the only thing it may ever be
         # pointed at.
+        #
+        # By name rather than by address, because that is what the generated
+        # traffic sends now, and the alias it depends on has to actually
+        # resolve for the server to fetch itself. Signed in, because the
+        # importer requires a session: what it does not require is a role.
         out = in_container(
-            "curl -s -o /dev/null -w '%{http_code}' "
-            f"'{BASE}/admin/import-image?url=http://203.0.113.2/assets/css/site.css'")
+            f"curl -s -o /dev/null -c {JAR} "
+            f"-d 'username=demo&password=demo123' {BASE}/login; "
+            f"curl -s -b {JAR} -o /dev/null -w '%{{http_code}}' "
+            f"'{BASE}/admin/import-image?url=http://shop.test/assets/css/site.css'")
         self.assertEqual(out.strip(), "200")
 
 

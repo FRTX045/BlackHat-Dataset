@@ -30,7 +30,9 @@ from shared.timeline.arrivals import arrival_times
 #: the human curve gave a finished log a peak-to-trough ratio of 26.8 against
 #: a real-world 5-10, because the small hours came out genuinely empty rather
 #: than bot-dominated.
-ROUND_THE_CLOCK = frozenset({"monitor", "crawler", "scanner"})
+ROUND_THE_CLOCK = frozenset({"monitor", "crawler", "scanner",
+                             # A polling script keeps no shop hours.
+                             "integration"})
 
 #: Pareto exponent for session length. Chosen so the median visit is a couple
 #: of pages and the long tail reaches the dozens: measured over 20,000 draws

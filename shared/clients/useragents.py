@@ -117,12 +117,18 @@ PERSONA_UA_CLASSES = {
     "mobile_user": ("mobile_ios", "mobile_android"),
     # Both, because a real site's crawl traffic is not only the search
     # engines: the SEO and AI crawlers are frequently the larger share.
+    # Staff use whatever the office puts in front of them.
+    "admin_browser": ("desktop_chrome", "desktop_firefox"),
     "crawler": ("bot_search", "bot_seo"),
     "feed_reader": ("feed_reader",),
     "uptime_monitor": ("uptime_monitor",),
     # Scanners and attackers present whatever their tooling sends. Real
     # opportunistic scanning is dominated by libraries and stale browser
     # strings, not current builds.
+    # The one benign presenter of an HTTP library. Without it every request
+    # in the corpus carrying one is hostile, and a detector keying on the
+    # User-Agent cannot be wrong here however wrong it is in the world.
+    "api_integration": ("library",),
     "scanner": ("library", "desktop_chrome"),
     "attacker": ("library", "desktop_chrome", "desktop_firefox"),
 }

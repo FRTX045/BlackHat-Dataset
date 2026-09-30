@@ -15,21 +15,27 @@ build that failed after the stack was up.
 import json
 import sys
 import unittest
+from urllib.parse import urlsplit
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "projects" / "apache-shopfront" / "traffic"))
 sys.path.insert(0, str(REPO / "projects" / "apache-shopfront" / "attacks"))
 
+from shared.clients.personas import SITE  # noqa: E402
 from browser import (BROWSER_PERSONAS, PROXY,  # noqa: E402
-                     port_map_entries, target_for)
+                     launch_args, port_map_entries, target_for)
 from shared.clients.ippools import (ALLOWED_NETWORKS,  # noqa: E402
-                                    ClientPool, is_allowed)
+                                    INFRASTRUCTURE_ADDRESSES, ClientPool,
+                                    is_allowed)
 
 #: Addresses the lab's own containers hold. A persona claiming one of these
 #: would put browser traffic under the server's or the proxy's identity.
-INFRASTRUCTURE = {"203.0.113.2", "203.0.113.3", "203.0.113.4", "203.0.113.6",
-                  "198.51.100.2", "198.51.100.3", "192.0.2.2", "192.0.2.3"}
+#:
+#: This was a hand-written copy that had drifted: it omitted 203.0.113.5, the
+#: browser container's own address, so the one machine most likely to leak its
+#: identity into the data was the one address this did not check.
+INFRASTRUCTURE = INFRASTRUCTURE_ADDRESSES
 
 
 class TestThePersonasAreDeclaredCoherently(unittest.TestCase):
@@ -147,20 +153,57 @@ class TestTheProxyPorts(unittest.TestCase):
 
 
 class TestWhereTheBrowserIsPointed(unittest.TestCase):
+    """Where Chromium thinks it is, and where its connections really go.
 
-    def test_it_navigates_to_the_tag_proxy_never_to_apache(self):
-        # Straight at Apache the requests would carry no request id and every
-        # line the browser produced would be unlabelled.
+    Two questions that used to share one answer. Chromium was sent to
+    http://203.0.113.3:<port>/, so the tag proxy's address and port became the
+    Referer of every subresource it loaded: 526 lines on the medium tier, and a
+    fingerprint separating these five personas from every other client by a
+    single header. It now navigates the site by the name every other source
+    uses, and a resolver rule sends that name to its own proxy port.
+    """
+
+    def test_it_navigates_the_site_by_the_name_visitors_use(self):
         for persona in BROWSER_PERSONAS:
             with self.subTest(persona=persona.name):
-                self.assertEqual(target_for(persona),
-                                 f"http://{PROXY}:{persona.port}")
+                self.assertEqual(target_for(persona), SITE)
+
+    def test_its_connections_still_go_through_the_tag_proxy(self):
+        # Straight at Apache the requests would carry no request id and every
+        # line the browser produced would be unlabelled. The name changed; the
+        # route must not.
+        host = urlsplit(SITE).hostname
+        for persona in BROWSER_PERSONAS:
+            with self.subTest(persona=persona.name):
+                self.assertIn(
+                    f"--host-resolver-rules=MAP {host} {PROXY}:{persona.port}",
+                    launch_args(persona))
+
+    def test_each_persona_keeps_its_own_proxy_port(self):
+        # The proxy runs in fixed mode, so the port is the identity. One rule
+        # shared by every persona would send all five to one port and collapse
+        # them into a single client.
+        rules = [arg for persona in BROWSER_PERSONAS
+                 for arg in launch_args(persona)
+                 if arg.startswith("--host-resolver-rules=")]
+        self.assertEqual(len(BROWSER_PERSONAS), len(rules))
+        self.assertEqual(len(rules), len(set(rules)))
+
+    def test_chromium_keeps_the_flags_this_container_needs(self):
+        for persona in BROWSER_PERSONAS:
+            with self.subTest(persona=persona.name):
+                args = launch_args(persona)
+                self.assertIn("--no-sandbox", args)
+                self.assertIn("--disable-dev-shm-usage", args)
 
     def test_the_target_names_no_host_outside_the_lab(self):
+        # `.test` is reserved (RFC 6761): it cannot resolve anywhere but here.
         for persona in BROWSER_PERSONAS:
             with self.subTest(persona=persona.name):
                 self.assertTrue(is_allowed(PROXY))
                 self.assertNotIn("://example.", target_for(persona))
+                self.assertTrue(
+                    urlsplit(target_for(persona)).hostname.endswith(".test"))
 
 
 class TestTheUserAgents(unittest.TestCase):

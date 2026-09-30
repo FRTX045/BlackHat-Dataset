@@ -65,8 +65,9 @@ _BY_CLASS = {
 
 #: The site these attacks are aimed at, for the Referer of a client that sends
 #: one. Matches the Host header, because a browser's referrer is a real URL on
-#: the site the reader was already looking at.
-SITE = "http://shop.test"
+#: the site the reader was already looking at. Imported rather than repeated:
+#: one server with two names in one log is the defect this came from.
+from playbooks import SITE  # noqa: E402,F401
 
 
 def operator_agent(campaign_name, seed):

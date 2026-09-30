@@ -30,6 +30,8 @@ Stdlib only.
 
 from typing import NamedTuple
 
+from shared.clients.personas import SITE
+
 
 class AttackStep(NamedTuple):
     method: str
@@ -441,15 +443,31 @@ def idor_walk(rng, style, known, start=1, count=10):
 
 
 def forced_browsing(rng, style, known):
-    """Try the admin area as an ordinary customer. Half of it refuses.
+    """Try the admin area anonymously, then with the account we hold.
 
     This is the phase that earns the rest. `/admin/users` and `/admin/orders`
     enforce the role check and answer 403; `/admin/ping` and `/admin/template`
     carry no check at all. Which is which is not something an operator knows in
     advance, and it is what makes attacking them afterwards a decision rather
     than a checklist.
+
+    An anonymous pass cannot tell those two groups apart. `require_login()`
+    answers before `require_admin()` ever runs, so everything with a session
+    check of any kind comes back as the same redirect, and only the routes with
+    no check at all answer at all. What the redirect does say is that the path
+    exists and wants a session -- unlike a 404, which says there is nothing
+    there. So the operator signs in with the customer account it holds and asks
+    the same questions again, and the second pass is where the role check
+    finally answers: 403 on the two hardened routes, and 200 on a landing page
+    an ordinary customer was never meant to see.
+
+    That second pass is new. Without it this docstring described a 403 that
+    appeared nowhere in the 1.25 million lines across the three tiers this
+    repository had shipped, because every forced-browsing request in all of
+    them was anonymous and `require_login()` bounced it first.
     """
     reachable = False
+    bounced = False
     for step in [
         AttackStep("GET", "/admin/", "access_control", "forced", 3.0,
                    note="is there an admin area at all"),
@@ -464,7 +482,37 @@ def forced_browsing(rng, style, known):
     ]:
         outcome = yield step
         reachable = reachable or _answered(outcome)
-    return frozenset({"admin_reachable"}) if reachable else frozenset()
+        bounced = bounced or (outcome is not None and outcome.status == 302)
+
+    # Nothing asked for a session, so there is nothing a sign-in would reveal.
+    if not bounced:
+        return frozenset({"admin_reachable"}) if reachable else frozenset()
+
+    yield AttackStep("GET", "/login", "authentication", "signin", 2.5,
+                     note="the redirect says this wants a session")
+    if not _signed_in((yield AttackStep(
+            "POST", "/login", "authentication", "signin", 2.0,
+            body="username=demo&password=demo123"))):
+        return frozenset({"admin_reachable"}) if reachable else frozenset()
+
+    for step in [
+        AttackStep("GET", "/admin/", "access_control", "forced", 2.5,
+                   note="signed in as a customer this time"),
+        AttackStep("GET", "/admin/users", "access_control", "forced", 2.0,
+                   note="does the role check hold for a signed-in customer"),
+        AttackStep("GET", "/admin/orders", "access_control", "forced", 2.0,
+                   note="and here"),
+    ]:
+        outcome = yield step
+        reachable = reachable or _answered(outcome)
+    # It signed in, so it holds a session the next play does not have to work
+    # out for itself. `ssrf` reads this: the importer is session-gated, and one
+    # operator signing in twice in one campaign is not a shape a reader of the
+    # log could account for.
+    facts = {"session"}
+    if reachable:
+        facts.add("admin_reachable")
+    return frozenset(facts)
 
 
 def verb_tampering(rng, style, known):
@@ -563,9 +611,27 @@ def ssrf(rng, style, known):
     and metadata attempts fail at the network layer. The attempt is the part
     that lands in the dataset, and recognising it is the skill -- so those are
     sent whether or not the baseline proved the importer fetches anything.
+
+    The importer is behind `require_login()` and nothing else. That is exactly
+    weakness 4 -- no role check, but a session all the same -- so an anonymous
+    run is redirected away from every step and carries no evidence of SSRF at
+    all. The operator signs in with the customer account it holds, unless an
+    earlier play in the campaign already did.
+
+    The baseline names this site the way its own pages do. Naming it by the
+    address the container answers on put a literal IP in a parameter, which is
+    the one marker separating the payloads below from an ordinary import.
     """
+    if "session" not in known:
+        yield AttackStep("GET", "/login", "authentication", "signin", 2.5,
+                         note="the importer wants a session, not a role")
+        if not _signed_in((yield AttackStep(
+                "POST", "/login", "authentication", "signin", 2.0,
+                body="username=demo&password=demo123"))):
+            return frozenset()
+
     baseline = yield AttackStep("GET", "/admin/import-image?url=" + _q(
-        "http://203.0.113.2/assets/css/site.css"), "ssrf", "ssrf", 4.0,
+        f"{SITE}/assets/css/site.css"), "ssrf", "ssrf", 4.0,
         note="baseline: a URL it is supposed to fetch")
     fetches = _shows(baseline, "Fetched")
 
@@ -583,7 +649,10 @@ def ssrf(rng, style, known):
                    "ssrf", "ssrf", 4.0, note="scheme confusion"),
     ]:
         yield step
-    return frozenset({"ssrf_confirmed"}) if fetches else frozenset()
+    facts = {"session"}
+    if fetches:
+        facts.add("ssrf_confirmed")
+    return frozenset(facts)
 
 
 # ---------------------------------------------------------------------------

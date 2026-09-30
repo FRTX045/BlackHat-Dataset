@@ -25,12 +25,17 @@ What only a real browser produces:
 write an explicit ledger. It also disables the HTTP cache -- Playwright says
 so outright -- and the cache is most of why a browser is worth running at all.
 So the tag proxy mints the ids instead, exactly as it does for the security
-tools, and these requests are labelled per request by `labels.py`.
+tools, and `labels.py` labels these requests from the scenario's intent: the
+personas are ordinary visitors, so the request only chooses among ordinary-use
+categories (an image is a static_asset, /api/stock an api_call, /login
+authentication, anything else browsing). It is never read for hostility --
+clicking the header's Account link or the footer's robots.txt link is still a
+visitor clicking a link.
 
-One consequence worth stating: because the labels are derived rather than
-declared, a browser `instance_id` is a run of one activity, not a whole
-session. That is what `instance_id` already means for every proxy-labelled
-source in this project.
+One consequence worth stating: because the labels are derived per request
+rather than declared per session, a browser `instance_id` is a run of one
+activity, not a whole session. That is what `instance_id` already means for
+every proxy-labelled source in this project.
 
 **Identity.** One container serves every persona. Each persona connects to its
 own tag-proxy port, and that port is configured in **fixed** mode, so the
@@ -127,8 +132,9 @@ def port_map_entries():
 
     The actor is plain `browser`. Deliberately not a `tool:` actor -- a tool's
     whole run is one activity and is labelled from the actor, whereas a
-    browser session is genuinely a mixture and every request in it can be read
-    on its own. A blanket category would put one wrong label on all of it.
+    browser session is a mixture of ordinary-use categories and each request
+    picks its own. `labels.py` never gives this actor a hostile label, which
+    is sound only while these ports are the one place it comes from.
     """
     return {p.port: {"mode": "fixed", "client_ip": p.address,
                      "actor": "browser"}

@@ -16,6 +16,11 @@ endpoint they appear in. A UNION SELECT aimed at /api/stock is injection, not
 an api_call. Getting that precedence backwards is the difference between a
 useful label and a misleading one.
 
+One actor is settled by the **scenario** instead: `browser`, the Chromium
+personas in `traffic/browser.py`. Their intent is declared, not guessed --
+they follow same-origin links on the page Chromium rendered and do nothing
+else -- so the request only chooses among ordinary-use categories for them.
+
 Everything here is a judgement about this project's URL vocabulary, which is
 why it lives beside the project rather than in shared/.
 """
@@ -45,6 +50,21 @@ _ACTOR_CATEGORIES = (
     (("tool:hydra",), "credential_attack"),
     (("crawler:",), "crawling"),
 )
+
+#: Actors whose intent the scenario declares as ordinary use.
+#:
+#: `browser` is assigned by the tag proxy from the port a request arrived on
+#: (`traffic/browser.py:port_map_entries`), never read off the request, so this
+#: is not "browser-looking traffic is benign". Those ports serve five personas
+#: that click links on pages Chromium rendered. Before this existed they fell
+#: through to the path heuristics below, and clicking our own header's Account
+#: link or the footer's robots.txt link made them `access_control` and
+#: `reconnaissance`: 10 of 585 browser lines in 2026-09-07-medium, which turned
+#: four of the five into quiet attackers that never attacked.
+#:
+#: Payload markers are deliberately not checked for them either. Labels record
+#: intent, and a visitor following a link is browsing whatever the link says.
+_SCENARIO_ORDINARY_ACTORS = frozenset({"browser"})
 
 _ASSET_SUFFIXES = (
     ".css", ".js", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico",
@@ -78,6 +98,17 @@ def _actor_category(actor):
     return None
 
 
+def _ordinary(route):
+    """The ordinary-use category a route's shape settles, or None."""
+    if route.lower().endswith(_ASSET_SUFFIXES):
+        return "static_asset"
+    if route.startswith("/api/"):
+        return "api_call"
+    if route.rstrip("/") in _AUTH_PATHS:
+        return "authentication"
+    return None
+
+
 def categorise(entry):
     """Return the vocabulary category for one tag-proxy ledger entry.
 
@@ -91,6 +122,10 @@ def categorise(entry):
     """
     actor = entry.get("actor") or ""
     path = entry.get("path") or "/"
+    route = path.split("?", 1)[0]
+
+    if actor in _SCENARIO_ORDINARY_ACTORS:
+        return _ordinary(route) or "browsing"
 
     # Decoded once for payload matching only. The raw path is what was
     # requested and what the log records; this copy exists so that an encoded
@@ -106,14 +141,9 @@ def categorise(entry):
     if from_actor:
         return from_actor
 
-    route = path.split("?", 1)[0]
-
-    if route.lower().endswith(_ASSET_SUFFIXES):
-        return "static_asset"
-    if route.startswith("/api/"):
-        return "api_call"
-    if route.rstrip("/") in _AUTH_PATHS:
-        return "authentication"
+    ordinary = _ordinary(route)
+    if ordinary:
+        return ordinary
     if any(marker in route for marker in _RECON_MARKERS):
         return "reconnaissance"
     if route.startswith("/admin") or route.startswith("/account"):

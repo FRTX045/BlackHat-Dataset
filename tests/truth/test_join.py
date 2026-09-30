@@ -191,6 +191,21 @@ class TestDerivedLabels(JoinCase):
         self.run_join(labeller=lambda entry: "unknown")
         self.assertEqual(self.truth_records[0]["category"], "browsing")
 
+    def test_a_declared_category_is_never_relabelled_even_for_a_browser(self):
+        # The browser exception lives in the labeller, and the labeller only
+        # runs for entries that declare nothing. A campaign's forced browsing
+        # keeps its label whatever actor string accompanies it.
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]
+                               / "projects" / "apache-shopfront"))
+        from labels import categorise
+        self.write_ledger([
+            {"request_id": "r1", "client_ip": "203.0.113.5", "actor": "browser",
+             "method": "GET", "path": "/", "category": "access_control"},
+            LEDGER[1], LEDGER[2]])
+        self.run_join(labeller=categorise)
+        self.assertEqual(self.truth_records[0]["category"], "access_control")
+
     def test_derived_episodes_change_id_when_the_activity_changes(self):
         self.run_join(labeller=self.label)
         first, second = self.truth_records[0], self.truth_records[1]

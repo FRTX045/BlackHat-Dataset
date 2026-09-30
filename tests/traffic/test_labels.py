@@ -104,5 +104,99 @@ class TestCategorise(unittest.TestCase):
         self.assertIn(categorise(entry("/", actor="")), CATEGORIES)
 
 
+class TestTheBrowserScenario(unittest.TestCase):
+    """The Chromium personas in traffic/browser.py are ordinary visitors.
+
+    Their intent is declared by the scenario, not read off the request:
+    `_browse()` clicks same-origin links on the page Chromium rendered and does
+    nothing else. The proxy assigns the actor by the port a request arrived
+    on, so `browser` means "came through a persona's port", never "looks like
+    a browser".
+    """
+
+    def test_following_the_account_link_is_browsing(self):
+        # The header links to /account/ on every page. Logged out, it answers
+        # 302; that is a visitor clicking a link, not forced browsing.
+        for path in ("/account/", "/account/orders", "/account/addresses"):
+            with self.subTest(path=path):
+                self.assertEqual(categorise(entry(path, actor="browser")),
+                                 "browsing")
+
+    def test_following_the_footer_links_is_browsing(self):
+        # The footer's "More" column links robots.txt and the sitemap.
+        for path in ("/robots.txt", "/sitemap.xml"):
+            with self.subTest(path=path):
+                self.assertEqual(categorise(entry(path, actor="browser")),
+                                 "browsing")
+
+    def test_payload_shaped_text_does_not_make_a_visitor_an_attacker(self):
+        # Labels record intent. A persona that only follows links is not
+        # injecting, whatever a URL it followed contains -- the same rule that
+        # keeps a 200 on /contact `browsing` when its referer carries XSS.
+        self.assertEqual(
+            categorise(entry("/search?q=1' UNION SELECT 1,2--",
+                             actor="browser")),
+            "browsing")
+        self.assertEqual(
+            categorise(entry("/download?file=../../etc/passwd",
+                             actor="browser")),
+            "browsing")
+
+    def test_ordinary_distinctions_are_kept(self):
+        cases = {"/assets/css/site.css": "static_asset",
+                 "/favicon.ico": "static_asset",
+                 "/api/cart": "api_call",
+                 "/login": "authentication",
+                 "/": "browsing",
+                 "/c/tools": "browsing"}
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(categorise(entry(path, actor="browser")),
+                                 expected)
+
+    def test_only_the_exact_actor_is_exempt(self):
+        # A prefix match would let any future `browser:...` actor inherit an
+        # exception that was argued for five specific personas.
+        for actor in ("browserx", "browser:foo", "Browser", " browser"):
+            with self.subTest(actor=actor):
+                self.assertEqual(categorise(entry("/account/", actor=actor)),
+                                 "access_control")
+                self.assertEqual(categorise(entry("/robots.txt", actor=actor)),
+                                 "reconnaissance")
+
+
+class TestAttackLabelsAreUntouchedByTheBrowserException(unittest.TestCase):
+    """Regression guards: these passed before the browser exception existed
+    and must keep passing. They pin that it did not widen."""
+
+    def test_enumeration_tools_on_the_paths_the_browser_now_clears(self):
+        for actor in ("tool:gobuster", "tool:dirb", "tool:ffuf"):
+            for path in ("/account/", "/robots.txt", "/sitemap.xml"):
+                with self.subTest(actor=actor, path=path):
+                    self.assertEqual(categorise(entry(path, actor=actor)),
+                                     "enumeration")
+
+    def test_reconnaissance_tools_stay_reconnaissance(self):
+        for actor in ("tool:nmap", "tool:whatweb", "tool:nikto"):
+            with self.subTest(actor=actor):
+                self.assertEqual(categorise(entry("/account/", actor=actor)),
+                                 "reconnaissance")
+
+    def test_sqlmap_stays_injection(self):
+        self.assertEqual(categorise(entry("/account/", actor="tool:sqlmap")),
+                         "injection")
+
+    def test_payloads_still_beat_a_tool_actor(self):
+        self.assertEqual(
+            categorise(entry("/account/?id=1 OR 1=1", actor="tool:gobuster")),
+            "injection")
+
+    def test_an_unlisted_actor_keeps_the_path_heuristics(self):
+        self.assertEqual(categorise(entry("/account/orders/41", actor="tool")),
+                         "access_control")
+        self.assertEqual(categorise(entry("/robots.txt", actor="tool")),
+                         "reconnaissance")
+
+
 if __name__ == "__main__":
     unittest.main()

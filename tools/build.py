@@ -65,6 +65,26 @@ class BuildError(RuntimeError):
 # Pure pieces
 # --------------------------------------------------------------------------
 
+#: Addresses reserved for traffic Apache logs without a request id, and the
+#: category to give those lines. Only the noise container ever uses this
+#: address, which is what makes labelling by it exact rather than a guess.
+#: Module level so `tools/relabel.py` replays a join with the same map.
+ADDRESS_FALLBACK = {"203.0.113.6": "reconnaissance"}
+
+
+def ledger_paths(ledgers):
+    """Every ledger a build joins, in the order it joins them.
+
+    Every `attack-*.jsonl` present is included, whether or not this run's
+    campaigns wrote it: the directory is not cleared between builds, so a
+    replay has to pass exactly this set to reproduce what the build did.
+    """
+    present = [ledgers / name
+               for name in ("driver.jsonl", "tagproxy.jsonl", "noise.jsonl")
+               if (ledgers / name).exists()]
+    return present + sorted(ledgers.glob("attack-*.jsonl"))
+
+
 def validate_tier(tier):
     if tier not in TIERS:
         raise BuildError(
@@ -486,14 +506,9 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
 
     logs = project_dir / "server" / "logs"
     ledgers = project_dir / "traffic" / "ledger"
-    driver_ledger = ledgers / "driver.jsonl"
     proxy_ledger = ledgers / "tagproxy.jsonl"
-    noise_ledger = ledgers / "noise.jsonl"
 
-    #: Addresses reserved for traffic Apache logs without a request id, and the
-    #: category to give those lines. Only the noise container ever uses this
-    #: address, which is what makes labelling by it exact rather than a guess.
-    address_fallback = {"203.0.113.6": "reconnaissance"}
+    address_fallback = dict(ADDRESS_FALLBACK)
 
     out = dataset_dir(repo, project, tier, started_at, seed)
     out.mkdir(parents=True, exist_ok=True)
@@ -754,9 +769,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
         sys.path.insert(0, str(project_dir))
         from labels import categorise  # noqa: PLC0415 - per-project module
 
-        present = [p for p in (driver_ledger, proxy_ledger, noise_ledger)
-                   if p.exists()]
-        present += sorted(ledgers.glob("attack-*.jsonl"))
+        present = ledger_paths(ledgers)
         if not present:
             raise BuildError(f"no ledgers were written under {ledgers}")
         state["report"] = join(

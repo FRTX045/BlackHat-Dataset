@@ -117,13 +117,28 @@ class TestTheProxyPorts(unittest.TestCase):
 
     def test_the_actor_is_browser_so_labelling_stays_per_request(self):
         # Deliberately not a `tool:` actor. A tool's whole run is one activity
-        # and is labelled from the actor; a browser session is genuinely a
-        # mixture, and every request in it can be read on its own -- an image
-        # is a static_asset, /api/stock is an api_call, /login is
-        # authentication. Giving browsers a blanket actor category would put
-        # one wrong label on all of it.
+        # and is labelled from the actor; a browser session is a mixture of
+        # ordinary use, and each request picks its own -- an image is a
+        # static_asset, /api/stock is an api_call, /login is authentication.
+        # `labels.py` never gives this actor a hostile label.
         for entry in port_map_entries().values():
             self.assertEqual(entry["actor"], "browser")
+
+    def test_nothing_else_is_handed_the_browser_actor(self):
+        # `labels.py` treats `browser` as the scenario's ordinary visitors and
+        # never gives it a hostile label. That is only true while these five
+        # ports are the one place the actor comes from.
+        from runner import ACTOR_PREFIX
+        from toolruns import port_map_entries as tool_ports
+        self.assertNotIn("browser",
+                         {entry["actor"] for entry in tool_ports().values()})
+        self.assertNotEqual(ACTOR_PREFIX, "browser")
+        path = REPO / "projects" / "apache-shopfront" / "traffic" / "ports.json"
+        committed = json.loads(path.read_text())
+        self.assertEqual(
+            {int(port) for port, entry in committed.items()
+             if entry["actor"] == "browser"},
+            {persona.port for persona in BROWSER_PERSONAS})
 
     def test_browser_ports_do_not_collide_with_the_tool_ports(self):
         from toolruns import port_map_entries as tool_ports

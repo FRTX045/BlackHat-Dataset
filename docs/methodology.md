@@ -162,6 +162,48 @@ shipped datasets. Per-request labelling is simply unreliable for tools —
 sqlmap's boolean payloads carry no `UNION` and no `or 1=1`, so a payload regex
 catches about one request in forty-five.
 
+### Real browsers
+
+The Chromium personas (`traffic/browser.py`) go through the same proxy, on five
+ports of their own, under the actor `browser`. Unlike a tool run, a browser
+session is a mixture: a page, its images, a basket call, a login form. So each
+request is labelled on its own. But it chooses only among ordinary-use
+categories, because the scenario defines what these clients are doing: they
+click same-origin links on the page Chromium rendered, and nothing else.
+
+That was not always so, and the way it went wrong is worth recording. The
+personas used to fall through to the same URL-shape heuristics as an
+unrecognised actor. Our own site links `/account/` from its header and
+`robots.txt` and the sitemap from its footer, so a logged-out visitor clicking
+Account (a 302 to the login page) was labelled `access_control`, and one
+clicking the footer link was labelled `reconnaissance`. Measured on
+2026-09-07-medium: 10 of 585 browser lines (6 and 4); on 2026-08-23-small, 6 of
+609. Four of the five personas in each build (a different four each time,
+depending on which links they happened to click) thereby became attackers with
+one to four hostile lines, which is exactly what a "missed quiet attacker"
+looks like to an evaluation. It was found because a detector did not flag them. It was
+fixed because `browser.py` shows they cannot attack. A fix argued from the
+detector's silence would have been the dataset agreeing with its reader.
+
+The exception is keyed on the actor, which the proxy assigns from the port a
+request arrived on. It is not keyed on anything in the request, so it does not
+say that browser-looking traffic is benign. A campaign's forced browsing
+declares its own category and never reaches the labeller at all. Payload-shaped
+text is deliberately ignored for these personas too. Labels record intent, and
+a visitor following a link is browsing whatever the link says; in the same way,
+a request whose referer carries an attacker's XSS is `browsing`, because the
+attack was the previous request, not this one. Tests pin
+both halves: the five ports are the only source of the actor, and every tool
+actor still gets its old label on the very paths the browser now clears.
+
+The same request can still carry different labels from different sources. The
+driver's shopper labels its logged-in `/account/` visit `browsing` for the same
+reason. That agreement supports the fix but is not its justification.
+Identical requests can legitimately differ in intent: `GET /admin/` answering
+302 is `access_control` when a campaign probes the admin area on purpose, and
+`enumeration` when a wordlist walk happens to draw it. Consistency is a thing to
+check, not a rule to impose.
+
 ### Client addresses
 
 All traffic originates inside an isolated Docker network, but a log full of

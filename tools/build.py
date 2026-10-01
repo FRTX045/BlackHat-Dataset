@@ -748,7 +748,7 @@ def run_build(project, tier, *, repo=REPO, runner=default_runner, now=None,
         sys.path.insert(0, str(REPO))
         from shared.clients.personas import (ADMIN_ADDRESSES,  # noqa: PLC0415
                                              ADMIN_DESCRIPTION)
-        seen = _requests_by_source(driver_ledger)
+        seen = _requests_by_source(ledgers / "driver.jsonl")
         state["admins"] = {
             "addresses": list(ADMIN_ADDRESSES),
             "description": ADMIN_DESCRIPTION,

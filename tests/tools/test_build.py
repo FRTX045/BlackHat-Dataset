@@ -545,3 +545,70 @@ class TestTheDrawNeverDeletesAnAttackClass(unittest.TestCase):
         # coverage it had not.
         with self.assertRaises(BuildError):
             chosen_campaigns(self.ROSTER, 7, required=("no_such_operator",))
+
+
+class TestTheAdministratorsStep(unittest.TestCase):
+    """The step that records what the shop's own staff did.
+
+    Every step of a build is a closure inside `run_build`, and the steps only
+    run against the live stack, so none of them is reached by an ordinary
+    test. This one was broken by a merge that git reported as clean: one side
+    removed the `driver_ledger` local, the other added this step reading it.
+    The test captures the step list instead of running it, then runs this one
+    step against a temporary repository -- no containers.
+    """
+
+    class Captured(Exception):
+        """Stops `run_build` once its steps are known, before it returns a
+        manifest no step has written."""
+
+    def build_steps(self, repo):
+        import tools.build as build
+        captured = {}
+
+        def capture(steps, teardown):
+            captured.update(steps)
+            raise self.Captured
+
+        def no_docker(*args, **kwargs):
+            raise AssertionError("the test must not reach Docker")
+
+        original = build.run_steps
+        build.run_steps = capture
+        try:
+            with self.assertRaises(self.Captured):
+                build.run_build("apache-shopfront", "small", repo=repo,
+                                runner=no_docker, now=NOW)
+        finally:
+            build.run_steps = original
+        return captured
+
+    def test_it_counts_the_administrators_in_the_driver_ledger(self):
+        import json
+        import shutil
+        from shared.clients.personas import ADMIN_ADDRESSES
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        project = repo / "projects" / "apache-shopfront"
+        (project / "scenarios").mkdir(parents=True)
+        shutil.copy(REPO / "projects" / "apache-shopfront" / "scenarios"
+                    / "small.toml", project / "scenarios" / "small.toml")
+        ledgers = project / "traffic" / "ledger"
+        ledgers.mkdir(parents=True)
+        first, second = ADMIN_ADDRESSES
+        entries = ([first] * 3 + [second] * 1
+                   + ["198.51.100.20"] * 5 + ["203.0.113.41"] * 2)
+        (ledgers / "driver.jsonl").write_text("".join(
+            json.dumps({"request_id": f"r{i}", "client_ip": ip}) + "\n"
+            for i, ip in enumerate(entries)))
+        # Present but not the driver's: counting from it would be wrong.
+        (ledgers / "tagproxy.jsonl").write_text(
+            json.dumps({"request_id": "p", "client_ip": first}) + "\n")
+
+        step = self.build_steps(repo)["recording the administrators"]
+        step()
+
+        state = dict(zip(step.__code__.co_freevars,
+                         (c.cell_contents for c in step.__closure__)))["state"]
+        self.assertEqual(state["admins"]["requests"], {first: 3, second: 1})

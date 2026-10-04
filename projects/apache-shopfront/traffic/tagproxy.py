@@ -8,7 +8,7 @@ single nikto run split into `reconnaissance` for its fingerprint probes and
 `injection` for its payload attempts.
 
 Everything that decides what Apache will see, and therefore what the truth file
-will claim, is in `build_forward` and `TagLedger`: pure functions over plain
+will claim, is in `split_head`, `build_forward` and `TagLedger`: pure functions over plain
 data, tested without a socket. The asyncio layer underneath them does no
 thinking.
 
@@ -83,6 +83,23 @@ def _split_absolute_target(target):
     _, _, rest = target.partition("://")
     authority, slash, path = rest.partition("/")
     return authority, ("/" + path) if slash else "/"
+
+
+def split_head(head):
+    """Split a request head into (request line, header lines), or None.
+
+    Blank lines before the request line are skipped, as Apache skips them. A
+    head with nothing but blank lines -- nmap's GenericLines probe is exactly
+    CRLF CRLF -- returns None: there is no request to forward. Apache, sent
+    that probe directly, answers nothing and logs nothing; forwarding it put
+    our own X-Forwarded-For header where Apache expects a request line.
+    """
+    lines = head.split("\r\n")
+    while lines and not lines[0]:
+        lines.pop(0)
+    if not lines:
+        return None
+    return lines[0], [line for line in lines[1:] if line]
 
 
 def build_forward(request_line, raw_headers, peer_ip, port_map, port):
@@ -212,8 +229,10 @@ async def _serve_connection(reader, writer, port_map, ledger):
                     ConnectionResetError):
                 return
 
-            lines = head.decode("latin-1").split("\r\n")
-            request_line, raw_headers = lines[0], [l for l in lines[1:] if l]
+            split = split_head(head.decode("latin-1"))
+            if split is None:
+                continue
+            request_line, raw_headers = split
             plan = build_forward(request_line, raw_headers, peer_ip,
                                  port_map, port)
             body = await _read_body(reader, raw_headers)

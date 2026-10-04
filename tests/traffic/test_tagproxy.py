@@ -20,7 +20,8 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1].parent
            / "projects" / "apache-shopfront" / "traffic"))
 
-from tagproxy import TagLedger, UnknownPortError, build_forward  # noqa: E402
+from tagproxy import (TagLedger, UnknownPortError, build_forward,  # noqa: E402
+                      split_head)
 
 PORT_MAP = {
     8080: {"mode": "peer", "actor": "tool"},
@@ -123,6 +124,35 @@ class TestForwardProxyRequestLine(unittest.TestCase):
     def test_path_is_reported_for_the_ledger(self):
         self.assertEqual(forward("GET /a/b?c=d HTTP/1.1").path, "/a/b?c=d")
         self.assertEqual(forward("POST /api/cart HTTP/1.1").method, "POST")
+
+
+class TestSplitHead(unittest.TestCase):
+    """Where a request line starts, decided the way Apache decides it.
+
+    Apache skips blank lines before a request line (RFC 9112 asks a server to
+    ignore at least one). Measured against this project's own image: given
+    nmap's GenericLines probe, a bare CRLF CRLF, Apache answers nothing and
+    logs nothing. The proxy used to forward that probe as an empty request
+    line followed by its own headers, so Apache read our X-Forwarded-For as
+    the request line: one 400 from the proxy's address, labelled unknown, in
+    every tier built up to 2026-10-04.
+    """
+
+    def test_an_ordinary_head_splits_into_request_line_and_headers(self):
+        self.assertEqual(
+            split_head("GET / HTTP/1.1\r\nHost: shop.test\r\nAccept: */*\r\n\r\n"),
+            ("GET / HTTP/1.1", ["Host: shop.test", "Accept: */*"]))
+
+    def test_a_head_of_blank_lines_alone_is_nothing_to_forward(self):
+        self.assertIsNone(split_head("\r\n\r\n"))
+        self.assertIsNone(split_head("\r\n\r\n\r\n"))
+
+    def test_blank_lines_before_the_request_line_are_skipped(self):
+        # Otherwise the request line would be read as a header, and the ledger
+        # would record a request with no method and no path.
+        self.assertEqual(
+            split_head("\r\nGET /p/17 HTTP/1.1\r\nHost: shop.test\r\n\r\n"),
+            ("GET /p/17 HTTP/1.1", ["Host: shop.test"]))
 
 
 class TestTagLedger(unittest.TestCase):

@@ -46,7 +46,8 @@ from shared.truth.reader import TruthFormatError, read_truth  # noqa: E402
 from shared.truth.validate import validate_records  # noqa: E402
 from shared.verify.agreement import compare_logs  # noqa: E402
 from shared.verify.combined import parse_line  # noqa: E402
-from shared.verify.content import lab_addresses_in_content  # noqa: E402
+from shared.verify.content import (lab_addresses_in_content,  # noqa: E402
+                                   lab_machinery_as_client)
 from shared.verify.crossfile import check_dataset  # noqa: E402
 from shared.verify.provenance import check_provenance  # noqa: E402
 from shared.verify.stats import summarise  # noqa: E402
@@ -122,6 +123,9 @@ def integrity(lines, truth_records):
     # checked on the artifact rather than per generator, because checking one
     # generator at a time is how the same leak got through twice.
     problems.extend(lab_addresses_in_content(parsed))
+    # Inside the reserved ranges is not enough either: the lab's own
+    # containers live there, and only two of them are clients by design.
+    problems.extend(lab_machinery_as_client(parsed))
 
     return problems, good
 

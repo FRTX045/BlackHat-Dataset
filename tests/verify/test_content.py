@@ -12,7 +12,8 @@ generator produces it.
 import unittest
 
 from shared.verify.combined import parse_line
-from shared.verify.content import lab_addresses_in_content
+from shared.verify.content import (lab_addresses_in_content,
+                                   lab_machinery_as_client)
 
 TS = "[09/Mar/2026:07:28:01 +0000]"
 UA = '"Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0.7339.16 Safari/537.36"'
@@ -80,12 +81,58 @@ class TestWhatALineMayName(unittest.TestCase):
         self.assertEqual(1, len(problems), problems)
 
     def test_an_nmap_address_is_not_the_tag_proxy(self):
-        # 198.51.100.32 begins with 198.51.100.3. The noise generator really
-        # does send this line.
-        self.assertEqual([], check(line(client="203.0.113.3",
-                                        request="X-Forwarded-For: 198.51.100.32")))
+        # 198.51.100.32 begins with 198.51.100.3, and is the nmap run's own
+        # address, so naming it is not naming the proxy.
+        self.assertEqual([], check(line(request="X-Forwarded-For: 198.51.100.32")))
 
     def test_an_unparsed_line_is_skipped_but_still_counted(self):
         problems = check("not a log line at all",
                          line(referer="http://203.0.113.3:8090/"))
         self.assertIn("line 2", problems[0])
+
+
+def clients(*lines):
+    return lab_machinery_as_client([parse_line(text) for text in lines])
+
+
+class TestWhoALineMayComeFrom(unittest.TestCase):
+    """The client half. Two lab containers are clients by design; no other is.
+
+    Every tier built up to 2026-10-04 shipped exactly one line from the tag
+    proxy: nmap's empty probe, forwarded as the proxy's own X-Forwarded-For
+    header in the request-line position. The content check above passed it,
+    because the request names nmap's address, not a lab container's.
+    """
+
+    def test_ordinary_clients_raise_nothing(self):
+        self.assertEqual([], clients(line(), line(client="100.64.3.7")))
+
+    def test_the_tag_proxy_as_a_client_fails(self):
+        problems = clients(line(), line(client="203.0.113.3",
+                                        request="X-Forwarded-For: 198.51.100.32"))
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("203.0.113.3", problems[0])
+        self.assertIn("line 2", problems[0])
+
+    def test_the_proxy_on_every_bridge_and_the_driver_and_browser_fail(self):
+        lab = ("198.51.100.3", "192.0.2.3", "203.0.113.4", "203.0.113.5")
+        problems = clients(*[line(client=address) for address in lab])
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("4 line", problems[0])
+        for address in lab:
+            self.assertIn(address, problems[0])
+
+    def test_the_server_fetching_itself_is_a_client_by_design(self):
+        # A successful SSRF against a lab host: VULNERABILITIES.md documents
+        # the server's own address in this field as the tell.
+        self.assertEqual([], clients(*[line(client=f"{bridge}.2")
+                                       for bridge in ("203.0.113", "198.51.100",
+                                                      "192.0.2")]))
+
+    def test_the_noise_container_is_a_client_by_design(self):
+        # Apache logs its malformed requests with no id, and the build labels
+        # them by this one address (ADDRESS_FALLBACK).
+        self.assertEqual([], clients(line(client="203.0.113.6", request="GARBAGE")))
+
+    def test_an_unparsed_line_is_skipped(self):
+        self.assertEqual([], clients("not a log line at all"))

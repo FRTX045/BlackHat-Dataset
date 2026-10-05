@@ -977,14 +977,18 @@ def aggressive_scrape(rng, style, known):
 def api_abuse(rng, style, known):
     """Hammer the JSON endpoints the shop front uses.
 
-    The endpoints are prepared-statement clean, so the payloads get nowhere.
-    What is left in the log is volume and shape against `/api/`, which is a
-    behaviour rather than a signature -- and behaviour is the part no
-    per-request rule can see.
+    Rude, not hostile: every request is one a customer could make -- a word,
+    a wildcard, a long pasted string -- and only volume and shape against
+    `/api/` give it away. That is a behaviour rather than a signature, and
+    behaviour is the part no per-request rule can see.
+
+    It once also sent ', 1 OR 1=1, <script> and ../, all labelled api_call.
+    No customer sends those, so the campaign shipped four injection and
+    traversal probes as benign. They were removed rather than relabelled:
+    what this campaign is for is the boundary, and a payload is past it.
     """
-    probes = ("oak", "brass", "'", "1 OR 1=1", "%", "../", "<script>",
-              "a" * 200)
-    for probe in rng.sample(probes, rng.randint(5, 8)):
+    probes = ("oak", "brass", "%", "a" * 200)
+    for probe in rng.sample(probes, rng.randint(3, 4)):
         yield AttackStep("GET", "/api/autocomplete?q=" + _q(probe),
                          "api_call", "api", 0.3, note="autocomplete probe")
     for number in rng.sample(range(1, 40), rng.randint(10, 20)):

@@ -181,6 +181,25 @@ class TestOutcomes(unittest.TestCase):
                 self.assertFalse(cats & ATTACK_CATEGORIES, sorted(cats))
                 self.assertTrue(cats)
 
+    def test_the_borderline_campaigns_send_nothing_a_customer_would_not(self):
+        # Their declared labels are only true if the premise is: a request
+        # carrying a payload is not one a customer makes, whatever category
+        # the play declares for it. api_abuser's autocomplete probes once
+        # included ', 1 OR 1=1, <script> and ../, all declared api_call, so a
+        # campaign "deliberately not hostile" shipped four probes as benign.
+        # Judged by the project's own labeller, on payload categories only:
+        # its URL heuristics also call robots.txt reconnaissance, and a
+        # scraper fetching robots.txt is exactly what a crawler does.
+        sys.path.insert(0, str(ATTACKS.parent))
+        from labels import categorise  # noqa: PLC0415
+        for name in self.NOT_HOSTILE:
+            for seed in range(20):
+                for step in steps_for(by_name(name), seed):
+                    with self.subTest(campaign=name, seed=seed, path=step.path):
+                        self.assertNotIn(
+                            categorise({"actor": "", "path": step.path}),
+                            {"injection", "path_traversal"})
+
     def test_a_campaign_achieves_nothing_against_an_application_that_holds(self):
         for campaign in CAMPAIGNS:
             with self.subTest(campaign=campaign.name):

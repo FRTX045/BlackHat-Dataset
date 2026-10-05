@@ -12,13 +12,15 @@ import sys
 import unittest
 from pathlib import Path
 
-from shared.clients.personas import NO_REFERER, PERSONAS
+import random
+
+from shared.clients.personas import NO_REFERER, PERSONAS, Step, journey
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[2]
            / "projects" / "apache-shopfront" / "traffic"))
 
-from driver import _ASSET, _ASSET_SUFFIXES, Episodes  # noqa: E402
+from driver import _ASSET, _ASSET_SUFFIXES, Episodes, navigates  # noqa: E402
 
 
 class TestEpisodes(unittest.TestCase):
@@ -103,6 +105,46 @@ class TestRefererPolicy(unittest.TestCase):
         for persona in ("casual", "shopper", "returning", "mobile"):
             with self.subTest(persona=persona):
                 self.assertNotIn(persona, NO_REFERER)
+
+
+class TestOnlyANavigationMovesThePage(unittest.TestCase):
+    """The page a request is made from is the last page navigated to.
+
+    Every GET used to become the current page, the page script's own XHRs
+    included. So a page view after a stock check claimed to come from
+    /api/stock?id=N, and the next XHR from the previous XHR: about 3.6% of
+    every tier through 2026-10-05, driver traffic only. A browser never sends
+    either; the Chromium personas had none.
+    """
+
+    def test_a_page_view_is_a_navigation(self):
+        self.assertTrue(navigates(Step("GET", "/p/12", "browsing", "browse")))
+
+    def test_the_page_scripts_calls_are_not(self):
+        for path in ("/api/stock?id=12", "/api/stock?id=${id}&watch=1",
+                     "/api/autocomplete?q=oa"):
+            with self.subTest(path=path):
+                self.assertFalse(navigates(Step("GET", path, "api_call", "browse")))
+
+    def test_a_post_is_not(self):
+        self.assertFalse(navigates(Step("POST", "/api/cart", "api_call", "basket")))
+
+    def test_no_shopper_request_claims_an_api_call_as_its_page(self):
+        rng = random.Random(7)
+        catalogue = {"categories": [{"slug": f"c{c}", "products":
+                                     list(range(c * 13 + 1, c * 13 + 14))}
+                                    for c in range(10)],
+                     "users": [], "low_stock": [5, 18, 31]}
+        for persona in ("shopper", "casual", "returning", "mobile"):
+            for _ in range(100):
+                previous = None
+                for step in journey(persona, rng, catalogue):
+                    if previous is not None:
+                        with self.subTest(persona=persona, path=step.path):
+                            self.assertFalse(previous.startswith("/api/"),
+                                             f"{step.path} sent from {previous}")
+                    if navigates(step):
+                        previous = step.path
 
 
 if __name__ == "__main__":

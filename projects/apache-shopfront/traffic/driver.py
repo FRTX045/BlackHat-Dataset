@@ -76,6 +76,18 @@ _ASSET_SUFFIXES = (".css", ".js", ".jpg", ".jpeg", ".png", ".gif", ".webp",
 _REVALIDATE_CHANCE = 0.18
 
 
+def navigates(step):
+    """Whether a step moves the visitor to a new page.
+
+    Only a navigation does. The page script's own calls -- the stock check,
+    autocomplete, the watch-list call -- carry the page they were made from
+    as their Referer and leave it the current page, as a browser's XHRs do.
+    Every GET used to count, so ~3.6% of each tier through 2026-10-05 named
+    a JSON endpoint as the page a request came from.
+    """
+    return step.method == "GET" and step.category != "api_call"
+
+
 class Ledger:
     """One record per issued request, flushed as it goes."""
 
@@ -280,7 +292,7 @@ class Driver:
                         step.category, step.activity, referer,
                         login_as=step.login_as)
 
-                if step.method == "GET":
+                if navigates(step):
                     previous = path
 
                 # Only HTML pages have a cascade, and only clients that render

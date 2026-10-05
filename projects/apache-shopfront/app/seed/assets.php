@@ -663,6 +663,43 @@ JS;
     return $out;
 }
 
+/**
+ * The product page's live stock check, and its watch-list call.
+ *
+ * The watch-list URL is in plain quotes where a template literal was meant,
+ * so `${id}` goes out unrendered and the server answers 404 for id 0. That is
+ * a deliberate front-end bug: real logs carry placeholders that leaked into
+ * URLs, and a rule matching `${` as PHP variable-variable syntax has to meet a
+ * benign one somewhere. Ordinary visitors trip it, on products showing the
+ * low-stock badge; the driver plans the same call from catalogue.json's
+ * `low_stock` (shared/clients/personas.py, WATCH_CALL). Nowdoc, so PHP leaves
+ * the placeholder alone.
+ */
+function js_product_stock(): string
+{
+    return <<<'JS'
+
+/* Product page: live stock, and the watch list for items running low. */
+(function (global) {
+  'use strict';
+  var F = global.Fettle;
+
+  F.$$('.stock[data-product]').forEach(function (badge) {
+    var id = badge.getAttribute('data-product');
+    F.request('/api/stock?id=' + id).then(function (data) {
+      if (typeof data.stock === 'number') {
+        badge.textContent = data.stock + ' in stock';
+      }
+    }).catch(function () {});
+    if (badge.hasAttribute('data-low')) {
+      F.request('/api/stock?id=${id}&watch=1').catch(function () {});
+    }
+  });
+}(window));
+
+JS;
+}
+
 function js_cart(): string
 {
     return <<<'JS'
@@ -935,7 +972,8 @@ function scripts(string $root): void
         . js_modules(['drawer', 'tabs', 'accordion', 'carousel', 'modal',
                       'tooltip', 'filters', 'sort', 'gallery', 'reviews',
                       'stock', 'recently-viewed', 'compare', 'wishlist',
-                      'address-book', 'delivery', 'returns', 'analytics']));
+                      'address-book', 'delivery', 'returns', 'analytics'])
+        . js_product_stock());
 
     file_put_contents("$dir/cart.js",
         js_cart()

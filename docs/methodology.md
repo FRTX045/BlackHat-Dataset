@@ -204,6 +204,23 @@ Identical requests can legitimately differ in intent: `GET /admin/` answering
 `enumeration` when a wordlist walk happens to draw it. Consistency is a thing to
 check, not a rule to impose.
 
+### A front-end bug, kept on purpose
+
+The product page's script checks live stock, and for a product showing the
+low-stock badge (5 or fewer) it also sends a "watch this item" call. That URL
+is written in plain quotes where a template literal was meant, so it goes out
+as `GET /api/stock?id=${id}&watch=1`, unrendered, and the server reads the id
+as 0 and answers 404. Real logs carry placeholders that leaked into URLs like
+this, and until this bug existed the dataset had no benign `${` at all, so a
+rule reading `${` as PHP variable-variable syntax could not be shown wrong.
+
+It lives in the application, not in a persona built to give a detector a
+counter-case: ordinary visitors trip it, the Chromium personas by running the
+page's script and the driver by planning the same call after the same views.
+The products with the badge come from one place (`app/lib/stock.php`), which
+the page renders and the seeder publishes in `catalogue.json` for the driver.
+Every such line is `api_call`: it is the front end's own request.
+
 ### Client addresses
 
 All traffic originates inside an isolated Docker network, but a log full of

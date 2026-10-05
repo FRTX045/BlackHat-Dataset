@@ -37,6 +37,8 @@ CATALOGUE = {
         {"username": "agatha", "password": "brassneck", "role": "admin",
          "orders": [4]},
     ],
+    # What the seeder publishes: products showing the low-stock badge.
+    "low_stock": [85, 99, 113],
 }
 
 PRODUCT_CATEGORY = {
@@ -288,6 +290,53 @@ class TestDeterminism(unittest.TestCase):
             with self.subTest(persona=persona):
                 self.assertEqual(journeys(persona, count=20, seed=7),
                                  journeys(persona, count=20, seed=7))
+
+
+WATCH = "/api/stock?id=${id}&watch=1"
+
+
+class TestTheUnrenderedPlaceholder(unittest.TestCase):
+    """The shop's product page has a front-end bug, and visitors trip it.
+
+    app.js sends a second, "watch this item" stock call for a product showing
+    the low-stock badge, and that URL is written in plain quotes where a
+    template literal was meant: Chromium sends `${id}` exactly as written. The
+    driver plans what the page's script does, so the same request follows the
+    same views. Ordinary visitors, ordinary label: it is the front end's own
+    call, so api_call.
+    """
+
+    def all_steps(self, catalogue=CATALOGUE, persona="shopper"):
+        rng = random.Random(7)
+        return [s for _ in range(400) for s in journey(persona, rng, catalogue)]
+
+    def test_a_low_stock_view_is_followed_by_the_literal_call(self):
+        steps = self.all_steps()
+        followed = [steps[i + 1] for i, s in enumerate(steps[:-1])
+                    if s.path in {f"/api/stock?id={n}"
+                                  for n in CATALOGUE["low_stock"]}]
+        self.assertTrue(followed, "no shopper viewed a low-stock product")
+        for step in followed:
+            self.assertEqual((step.method, step.path, step.category),
+                             ("GET", WATCH, "api_call"))
+
+    def test_only_a_low_stock_view_is_followed_by_it(self):
+        steps = self.all_steps()
+        low = {f"/api/stock?id={n}" for n in CATALOGUE["low_stock"]}
+        for i, step in enumerate(steps):
+            if step.path == WATCH:
+                self.assertIn(steps[i - 1].path, low)
+
+    def test_it_is_a_small_share_of_the_stock_calls(self):
+        steps = self.all_steps()
+        stock = sum(1 for s in steps if s.path.startswith("/api/stock?id="))
+        watch = sum(1 for s in steps if s.path == WATCH)
+        self.assertGreater(watch, 0)
+        self.assertLess(watch / stock, 0.06)
+
+    def test_a_catalogue_with_no_low_stock_list_produces_none(self):
+        bare = {k: v for k, v in CATALOGUE.items() if k != "low_stock"}
+        self.assertFalse(any("${" in s.path for s in self.all_steps(bare)))
 
 
 if __name__ == "__main__":

@@ -148,8 +148,18 @@ def _category(rng, catalogue):
     return rng.choice(catalogue["categories"])
 
 
+#: The shop's own front-end bug, as the page's script sends it. app.js follows
+#: the stock check for a product showing the low-stock badge with a "watch
+#: this item" call whose URL is in plain quotes where a template literal was
+#: meant, so `${id}` goes out unrendered. The server reads it as id 0 and
+#: answers 404. Which products show the badge is the seeder's to say
+#: (`catalogue.json`'s `low_stock`), so the threshold lives in one place.
+WATCH_CALL = "/api/stock?id=${id}&watch=1"
+
+
 def _browse(rng, catalogue, pages, referer=None):
     """Enter, open a listing, then open products from that listing."""
+    low_stock = frozenset(catalogue.get("low_stock", ()))
     category = _category(rng, catalogue)
     steps = [
         Step("GET", _landing(rng, referer), "browsing", "browse", referer),
@@ -162,6 +172,8 @@ def _browse(rng, catalogue, pages, referer=None):
         product = rng.choice(category["products"])
         steps.append(Step("GET", f"/p/{product}", "browsing", "browse"))
         steps.append(Step("GET", f"/api/stock?id={product}", "api_call", "browse"))
+        if product in low_stock:
+            steps.append(Step("GET", WATCH_CALL, "api_call", "browse"))
     return steps, category
 
 

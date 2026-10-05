@@ -23,6 +23,8 @@
  */
 const SCHEMA_VERSION = 2;
 
+require __DIR__ . '/../lib/stock.php';
+
 const CATEGORIES = [
     ['hand-tools',   'Hand Tools',        ['Chisel', 'Mallet', 'Hacksaw', 'Rasp', 'Spokeshave', 'Bradawl', 'Plane', 'Scriber']],
     ['power-tools',  'Power Tools',       ['Drill', 'Sander', 'Jigsaw', 'Router', 'Grinder', 'Nailer', 'Planer', 'Multitool']],
@@ -393,6 +395,12 @@ foreach (USERS as [$username, $email, $password, $role]) {
         'orders' => array_map('intval', $orders->fetchAll(PDO::FETCH_COLUMN)),
     ];
 }
+// The products whose page shows the low-stock badge, read back from the
+// database rather than recomputed, so the driver plans the page script's
+// calls against what the page really renders.
+$low = $pdo->prepare('SELECT id FROM products WHERE stock <= ? ORDER BY id');
+$low->execute([LOW_STOCK]);
+$manifest['low_stock'] = array_map('intval', $low->fetchAll(PDO::FETCH_COLUMN));
 file_put_contents("$root/data/catalogue.json",
                   json_encode($manifest, JSON_PRETTY_PRINT) . "\n");
 

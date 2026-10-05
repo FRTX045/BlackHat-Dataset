@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/lib/db.php';
 require __DIR__ . '/lib/render.php';
+require __DIR__ . '/lib/stock.php';
 
 $item = product((int) ($_GET['id'] ?? 0));
 if ($item === null) {
@@ -91,7 +92,7 @@ json_ld([[
       <span class="meta"><?= e((string) $item['rating']) ?> out of 5 from <?= $reviews ?> reviews</span>
     </p>
     <p class="price">&pound;<?= number_format((float) $item['price'], 2) ?> <span class="meta">inc. VAT</span></p>
-    <p class="stock badge badge-<?= ((int) $item['stock']) > 0 ? 'ok' : 'bad' ?>" data-product="<?= $id ?>"><?= (int) $item['stock'] ?> in stock</p>
+    <p class="stock badge badge-<?= ((int) $item['stock']) > 0 ? 'ok' : 'bad' ?>" data-product="<?= $id ?>"<?= ((int) $item['stock']) <= LOW_STOCK ? ' data-low' : '' ?>><?= (int) $item['stock'] ?> in stock</p>
     <div class="buy">
       <label class="visually-hidden" for="qty">Quantity</label>
       <input type="number" id="qty" name="qty" value="1" min="1" max="20" inputmode="numeric">

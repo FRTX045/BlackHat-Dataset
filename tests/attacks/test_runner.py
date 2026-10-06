@@ -166,6 +166,27 @@ class TestWhatGoesOverTheWire(TestWhatTheOperatorHandsBack):
     def test_a_library_client_sends_none_at_all(self):
         self.assertTrue(all(h.get("Referer") is None for h in self.walk(False)))
 
+    def after(self, method, path):
+        """The Referer of a page view that follows `method path` from /."""
+        _Handler.seen.clear()
+        operator = runner.Operator(
+            by_name("fruitless_prober"), io.StringIO(), pace=10000.0,
+            rng=random.Random(0), agent="test-agent", sends_referer=True)
+        for step in (("GET", "/"), (method, path), ("GET", "/c/decorating")):
+            operator.send(AttackStep(*step, "browsing", "lull-1", 0.0))
+        return dict(_Handler.seen)["/c/decorating"].get("Referer")
+
+    def test_a_request_that_is_not_a_page_view_does_not_become_the_page(self):
+        # fruitless_prober's verb tampering, then a lull: 2026-10-06-medium
+        # carried GET /c/decorating "from" http://shop.test/api/cart?id=1. A
+        # browser is never on a page it sent DELETE to.
+        self.assertEqual(self.after("DELETE", "/api/cart?id=1"),
+                         "http://shop.test/")
+
+    def test_a_json_endpoint_does_not_become_the_page(self):
+        self.assertEqual(self.after("GET", "/api/stock?id=1"),
+                         "http://shop.test/")
+
     def test_the_agent_on_the_wire_is_the_one_the_operator_was_given(self):
         self.assertEqual(self.walk(False)[0].get("User-Agent"), "test-agent")
 

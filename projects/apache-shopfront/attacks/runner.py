@@ -238,7 +238,12 @@ class Operator:
         }, separators=(",", ":")) + "\n")
         self.ledger.flush()
         self.issued += 1
-        self.came_from = step.path
+        # Only a page view moves the page. A browser is never on a page it
+        # sent DELETE to, or on a JSON endpoint it fetched: fruitless_prober's
+        # verb tampering once made a lull's GET /c/decorating claim to come
+        # from /api/cart?id=1.
+        if step.method == "GET" and not step.path.startswith("/api/"):
+            self.came_from = step.path
         # Back to the playbook that asked for it. A step's successor is chosen
         # from this and nothing else, which is what keeps one campaign's branch
         # independent of what the others did to the application.

@@ -159,7 +159,10 @@ JSON Lines. One header line, then exactly one record per log line, in order.
 
 `"kind":"logarc-truth"` names the format that
 [logarc](https://github.com/FRTX045/logarc)'s `logarc evaluate` command reads,
-so a build here can be scored by it as it stands.
+so a build here can be scored by it as it stands. logarc's published scores —
+its README's
+[How well does it work](https://github.com/FRTX045/logarc#how-well-does-it-work)
+— were measured on `2026-10-06-medium`.
 
 - `line_no` — 1-based, contiguous, matching `access.log` exactly
 - `client_ip` — equals the address on that log line

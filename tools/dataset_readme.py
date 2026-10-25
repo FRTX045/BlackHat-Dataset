@@ -27,6 +27,25 @@ def _table(mapping, key_header, value_header, limit=None):
     return "\n".join(lines)
 
 
+def _audit_text(manifest):
+    findings = manifest.get("audit", {}).get("findings", [])
+    fired = [f for f in findings if f["suspicious"]]
+    if not findings:
+        return "The audit was not run for this dataset."
+    return "\n".join(
+        [f"`tools/audit.py` runs {len(findings)} tells for whether a log "
+         f"looks generated. On this dataset "
+         f"**{len(fired)} of them "
+         f"{'fires' if len(fired) == 1 else 'fire'}**.", ""]
+        + ([f"- **`{f['name']}`** — measured `{f['measured']}` against a "
+            f"threshold of `{f['threshold']}`. {f['explanation']}"
+            for f in fired]
+           if fired else
+           [f"None fired, which is a statement about these {len(findings)} "
+            f"checks and not a claim that the log is indistinguishable from "
+            f"a real one."]))
+
+
 def render(*, project, tier, manifest, stats, tool_runs, campaigns):
     agreement = manifest["derived_vs_apache_combined"]
     clients = stats["client_concentration"]
@@ -140,23 +159,7 @@ what `instance_id` already means for every proxy-labelled source here."""
                         "cascades are real requests for real subresources, "
                         "ordered by the driver rather than by Chromium.")
 
-    findings = manifest.get("audit", {}).get("findings", [])
-    fired = [f for f in findings if f["suspicious"]]
-    if findings:
-        audit_text = "\n".join(
-            [f"`tools/audit.py` runs {len(findings)} tells for whether a log "
-             f"looks generated. On this dataset "
-             f"**{len(fired)} of them "
-             f"{'fires' if len(fired) == 1 else 'fire'}**.", ""]
-            + ([f"- **`{f['name']}`** — measured `{f['measured']}` against a "
-                f"threshold of `{f['threshold']}`. {f['explanation']}"
-                for f in fired]
-               if fired else
-               ["None fired, which is a statement about these eight checks "
-                "and not a claim that the log is indistinguishable from a "
-                "real one."]))
-    else:
-        audit_text = "The audit was not run for this dataset."
+    audit_text = _audit_text(manifest)
 
     succeeded = [c for c in campaigns if c.get("succeeds")]
     failed = [c for c in campaigns if not c.get("succeeds")]

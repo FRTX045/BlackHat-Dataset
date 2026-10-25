@@ -432,8 +432,9 @@ rate. Both are printed with the window attached.
 
 Everything needed to check the work is in the dataset folder.
 
-1. **Rebuild it.** `python3 tools/build.py <project> <tier>` with the seed from
-   `MANIFEST.json` reproduces the same request sequence.
+1. **Rebuild it.** Check out the commit `MANIFEST.json` names, then
+   `python3 tools/build.py <project> <tier>`; its seed reproduces the same
+   plan, though not the same bytes — see [On reproducibility](#on-reproducibility).
 2. **Check the truth file against the log yourself.**
    `python3 tools/verify.py <dataset-dir>` re-runs every integrity check.
 3. **Read the manifest.** Every attack tool invocation is there verbatim — the
@@ -447,10 +448,11 @@ Everything needed to check the work is in the dataset folder.
    difference between the two columns is exactly what the rewrite cost and
    what it bought.
 6. **Run the fake-log audit.** `python3 tools/audit.py <dataset-dir> -v` runs
-   eight tells for whether a log looks generated — round-number response
-   sizes, an implausible request rate, user-agent monoculture, uniform client
-   volumes, missing status classes, an absence of malformed requests,
-   perfectly ordered timestamps, and client addresses counted out of a subnet.
+   nine tells for whether a log looks generated — toy-sized responses,
+   round-number response sizes, an implausible request rate, user-agent
+   monoculture, uniform client volumes, missing status classes, an absence of
+   malformed requests, perfectly ordered timestamps, and client addresses
+   counted out of a subnet.
    It is pointed at our own datasets first and it does find things; what it
    finds is in each dataset's README. It works on any Combined log, so it can
    be pointed at a third-party dataset for comparison.

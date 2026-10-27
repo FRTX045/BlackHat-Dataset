@@ -223,7 +223,7 @@ groups are contiguous per client, and that every line parses as Apache
 Combined. That is the shape of the line, not of the request inside it: Apache
 logs whatever request line arrived, and the noise client sends deliberately
 malformed ones — `"GARBAGE"`, `"GET /.env x"`, a bare `"GET /backup.zip"`;
-65, 190 and 602 lines in the three 2026-10-06 tiers, answered `400` or `404`.
+94, 294 and 910 lines in the three 2026-10-06 tiers, answered `400` or `404`.
 Those lines parse, with method, path or protocol left empty where the request
 line has none. It then prints the realism statistics — status distribution,
 inter-arrival shape, requests per session, user-agent cardinality, `Referer`

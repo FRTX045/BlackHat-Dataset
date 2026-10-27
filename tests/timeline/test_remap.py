@@ -17,7 +17,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from shared.timeline.arrivals import arrival_times_for_count
-from shared.timeline.remap import remap_records
+from shared.timeline.remap import remap_placement, remap_records
 from shared.truth.validate import validate_records
 from shared.verify.combined import parse_line
 
@@ -189,6 +189,38 @@ class TestNothingButTheClockChanges(unittest.TestCase):
         before = sorted((r["client_ip"], r["category"]) for r in self.records)
         after = sorted((r["client_ip"], r["category"]) for r in self.truth)
         self.assertEqual(before, after)
+
+
+class TestWhereEachLineWentAndWhen(unittest.TestCase):
+    """What the remap knows about each line and the shipped line cannot say.
+
+    The rewritten log carries whole seconds, and its lines carry no trace of
+    where they sat in the capture. A format that writes sub-second times, or a
+    field only the capture holds (the request id), needs both -- from the
+    same computation that wrote the shipped file, not a second guess at it.
+    """
+
+    def setUp(self):
+        self.lines, self.records = a_run(seed=6)
+        kwargs = dict(start=START, duration_seconds=86400, seed=13)
+        self.out, _, _ = remap_records(self.lines, self.records, **kwargs)
+        self.placement = remap_placement(self.lines, self.records, **kwargs)
+
+    def test_there_is_one_placement_per_line(self):
+        self.assertEqual(len(self.placement), len(self.out))
+
+    def test_each_line_comes_from_the_capture_line_it_names(self):
+        for line, (source, _) in zip(self.out, self.placement):
+            self.assertEqual(strip_timestamp(line),
+                             strip_timestamp(self.lines[source]))
+
+    def test_the_whole_second_is_the_one_the_line_was_given(self):
+        for line, (_, when) in zip(self.out, self.placement):
+            self.assertEqual(parse_line(line)["ts"],
+                             when.replace(microsecond=0))
+
+    def test_the_time_keeps_what_the_line_cannot(self):
+        self.assertTrue(any(when.microsecond for _, when in self.placement))
 
 
 class TestTheStructureSurvives(unittest.TestCase):

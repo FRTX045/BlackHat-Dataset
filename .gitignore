@@ -1,4 +1,5 @@
-# Build output. Full logs are published as release assets, not committed.
+# Build output. Full logs are not committed: a build regenerates them, and
+# tools/package.py builds the release assets they are planned to ship as.
 __pycache__/
 *.pyc
 .venv/
@@ -19,6 +20,9 @@ datasets/**/truth.raw.jsonl
 datasets/**/*.xz
 datasets/**/*.zst
 datasets/**/SHA256SUMS
+# Other formats rendered from a build's capture by tools/render.py, as large
+# as the log itself and regenerated from it the same way.
+datasets/**/rendered/
 
 projects/*/server/logs/
 projects/*/traffic/ledger/

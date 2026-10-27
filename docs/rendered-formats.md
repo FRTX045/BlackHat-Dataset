@@ -1,6 +1,7 @@
 # Rendered formats: the rules
 
-**Status: draft for review.** Nothing is rendered until these rules are agreed.
+**Status: agreed with the logarc session on 2026-10-27**; the decisions are at
+the end.
 
 Every file this produces is **rendered from the Apache capture**. It is never a
 capture. No nginx, IIS, Envoy, HAProxy or CDN served this traffic: each file is
@@ -56,9 +57,9 @@ remap's draw, already disclosed as inference in every remapped dataset.
 2. **Constants are declared.** A field nobody measured gets one fixed value
    for the whole file, the value the server writes for "unknown" where it has
    one (`-`, `-1`), and the constant is listed below and in the manifest. No
-   field is filled with a random or modelled number. *Proposal for review:*
+   field is filled with a random or modelled number. As agreed:
    where a format's byte field includes headers, the measured body size goes
-   in it and the field is flagged as a **lower bound** (see Open decisions).
+   in it and the field is flagged as a **lower bound** (see Decisions).
 3. **Escaping is re-done, not copied.** The Apache line's own escapes
    (`\"`, `\\`, `\xhh`, C-style whitespace; [mod_log_config][apache-log])
    are undone to the raw bytes, then the target server's escaping is applied.
@@ -79,7 +80,7 @@ remap's draw, already disclosed as inference in every remapped dataset.
    (`10.0.0.20:80` for "the server", `10.0.0.10` for a proxy's own address),
    never a lab container's address: those are what `verify.py` refuses to see
    in content.
-7. **Malformed request lines** (65 / 190 / 602 lines: `GARBAGE`,
+7. **Malformed request lines** (94 / 294 / 910 lines: `GARBAGE`,
    `GET /.env x`, a bare `GET /backup.zip`) stay, 1:1, and are counted per
    format. Several of these servers would not have logged them in this form —
    see each format's *Malformed* row — and that is said in the manifest rather
@@ -101,7 +102,7 @@ read from this build's own image, `/etc/apache2/apache2.conf` lines 212–214.
 | `apache-common` | `%h %l %u %t "%r" %>s %b` | Exact: the shipped line minus Referer and User-Agent. |
 | `apache-vhost-common` | `%v %h %l %u %t "%r" %>s %b` | `%v` = `shop.test`, the canonical ServerName ([docs' own `vhost_common`][apache-log]). Exact. |
 | `apache-vhost-combined` | `%v:%p %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"` | `shop.test:80`. **Debian's stock `vhost_combined` uses `%O`, not `%b`**; this is written with `%b`, as this server redefines `combined`, and as logarc defines it. Exact under that redefinition. |
-| `apache-combined-io` | combined + ` %I %O` | **Not renderable faithfully**: its only addition over combined is two wire-byte counts nobody measured. See Open decisions. |
+| `apache-combined-io` | combined + ` %I %O` | Both counts unmeasured: `%I` the request-size lower bound, `%O` the body size, both flagged as lower bounds (Decisions 1 and 2). |
 
 Escaping: Apache's own, so the shipped bytes carry over unchanged.
 
@@ -116,7 +117,7 @@ Source: [ngx_http_log_module][nginx-log] (the `combined` definition, `escape`);
 |---|---|---|
 | `nginx-main` | combined + ` "$http_x_forwarded_for"` | XFF `-`: the client connects directly, so `$remote_addr` is the client and no proxy added a header. |
 | `nginx-combined-forwarded` | combined + ` "$http_x_forwarded_for" $request_time` | XFF `-` as above. `$request_time` **constant `0.000`** (unmeasured). |
-| `ingress-nginx` | `upstreaminfo`: combined + ` $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id` | `$req_id` = the **measured** request id (nginx's own `$request_id` is the same 32-hex shape). `$upstream_status` = the status. `$upstream_response_length` = `%b` body size, `0` for `-`. `$request_length` **unmeasured** (includes headers): see Open decisions. `$request_time`, `$upstream_response_time` constant `0.000`. Upstream `[default-shop-80]`, alternative `[]`, `$upstream_addr` `10.0.0.20:80`. |
+| `ingress-nginx` | `upstreaminfo`: combined + ` $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id` | `$req_id` = the **measured** request id (nginx's own `$request_id` is the same 32-hex shape). `$upstream_status` = the status. `$upstream_response_length` = `%b` body size, `0` for `-`. `$request_length` **unmeasured** (includes headers): a lower bound (Decisions). `$request_time`, `$upstream_response_time` constant `0.000`. Upstream `[default-shop-80]`, alternative `[]`, `$upstream_addr` `10.0.0.20:80`. |
 
 `$body_bytes_sent` is `0` where Apache wrote `-`: nginx counts, it never
 writes `-` for this variable. Escaping: nginx default (`\x22` for `"`, not
@@ -155,7 +156,7 @@ line for `GARBAGE` or `GET /.env x`. Kept, counted, flagged.
 |---|---|---|
 | `nginx-json` | `time_local`, `remote_addr`, `request`, `status`, `body_bytes_sent`, `http_referer`, `http_user_agent`, all as JSON strings, `log_format ... escape=json`. **An absent Referer is `""`, not `"-"`**: with `escape=json` nginx writes nothing for a variable not found. `body_bytes_sent` `"0"` for `-`. | [nginx-log], [nginx-src] (`ngx_http_log_json_variable`) |
 | `caddy-json` | `level`, `ts` (Unix seconds, float, modelled time), `logger` `http.log.access.log0`, `msg` `handled request`, `request` {`remote_ip`, `remote_port` constant `"0"`, `client_ip`, `proto`, `method`, `host` `shop.test`, `uri` (**path and query**), `headers` {`User-Agent`: [..], `Referer`: [..]}: **header values are arrays**, absent headers are left out}, `bytes_read` `0`, `user_id` `""`, `duration` constant `0`, `size` (body, `0` for `-`), `status`, `resp_headers` `{}`. | [Caddy log directive][caddy-log] (`unix_seconds_float`, duration in seconds, headers as string arrays); logarc's sample written by Caddy 2.11.7 |
-| `cloudflare-json` | `ClientIP`, `ClientRequestHost`, `ClientRequestMethod`, `ClientRequestURI` (**path and query**), `ClientRequestPath`, `ClientRequestProtocol`, `ClientRequestReferer`, `ClientRequestUserAgent`, `EdgeResponseStatus`, `EdgeStartTimestamp` (**`unixnano`**, the API default, from the modelled time), `RayID` (from the request id, 16 hex). `EdgeResponseBytes`: see Open decisions. | [Logpush http_requests fields][cf-fields], [Logpush output options][cf-output] |
+| `cloudflare-json` | `ClientIP`, `ClientRequestHost`, `ClientRequestMethod`, `ClientRequestURI` (**path and query**), `ClientRequestPath`, `ClientRequestProtocol`, `ClientRequestReferer`, `ClientRequestUserAgent`, `EdgeResponseStatus`, `EdgeStartTimestamp` (**`unixnano`**, the API default, from the modelled time), `RayID` (from the request id, 16 hex). `EdgeResponseBytes`: a lower bound (Decisions). | [Logpush http_requests fields][cf-fields], [Logpush output options][cf-output] |
 | `gcp-http-json` | `timestamp` (RFC 3339, `Z`, microseconds, modelled), `httpRequest` {`requestMethod`, `requestUrl` = **`http://shop.test` + path + query**, `status` (integer), `userAgent`, `remoteIp`, `referer`, `protocol`}. `responseSize` and `requestSize` are **strings** and include headers: left out (they are optional); `latency` left out. Fields absent from the request are omitted, not `"-"`. | [LogEntry / HttpRequest][gcp-logentry] |
 | `ecs-http` | `@timestamp` (RFC 3339, milliseconds, modelled), `client.ip`, `source.ip`, `http.request.method` (case as received), `http.request.referrer`, `http.version`, `http.response.status_code`, `http.response.body.bytes` (`%b`; omitted when Apache wrote `-`), `url.original` (target as received), `url.path`, `url.query` (**without the `?`**; absent when the target has no `?`, empty string when it ends in `?`), `url.domain` `shop.test`, `user_agent.original`. Nested objects, as Filebeat writes them. | [ECS http][ecs-http], [ECS url][ecs-url] |
 
@@ -209,13 +210,14 @@ to go wrong. `cs-uri-stem` and `cs-uri-query` without the `?`, `-` when empty.
 `Miss` (`Error` for 4xx/5xx, per AWS's definition), `cs-protocol` `http`,
 `ssl-*` `-`, `x-forwarded-for` `-`, `fle-*` `-`, `time-taken` and
 `time-to-first-byte` `0.000`, `c-port` `0`, `x-edge-request-id` from the
-request id. `sc-bytes`/`cs-bytes`: see Open decisions. `sc-content-type`,
+request id. `sc-bytes`/`cs-bytes`: a lower bound (Decisions). `sc-content-type`,
 `sc-content-len`, range fields `-`. Sources: [CloudFront standard logs
 reference][cf-std] (fields, order, example), [archived CloudFront guide][cf-encoding]
 (the URL-encoding list, which the current page no longer carries).
 
-*Malformed:* CloudFront cannot parse these and would not forward them. Kept,
-counted, flagged.
+*Malformed:* what CloudFront logs for a request line it cannot parse is not in
+AWS's pages (they cover only over-size requests, which are not logged). Kept
+as received, flagged `kept_as_received`.
 
 ### Proxies
 
@@ -247,7 +249,7 @@ HAProxy's default 1024-byte line cuts long attack queries. Timers constant
 decisions. *Malformed:* HAProxy logs an invalid request as `"<BADREQ>"`, not
 the bytes sent; the manual's own example (§8.2 `log-profile`, line 27409 of
 the 3.2.0 text) is `myproxy/<NOSRV> -1/-1/-1/-1/384 400 0 - - CR-- ...
-"<BADREQ>"`. **Proposal:** render these as HAProxy would, following that
+"<BADREQ>"`. These are rendered as HAProxy would, following that
 example: server `<NOSRV>`, timers `-1/-1/-1/-1/0`, status `400`, bytes `0`,
 `CR--`. The attack content of those lines is lost, which is also what a real
 HAProxy log loses.
@@ -270,8 +272,9 @@ own UUID, so the measured id is written in UUID layout (8-4-4-4-12). Authority
 values as they came. Measured: no User-Agent in the three tiers contains `"`,
 so no line is affected by logarc's refusal of ambiguous quotes. No Referer
 field. *Malformed:* Envoy's codec rejects these before routing and logs
-`"- - HTTP/1.1" 400 DPE` (as in logarc's own `refused` capture). **Proposal:**
-render as Envoy would, as for HAProxy.
+`"- - HTTP/1.1" 400 DPE` (as in logarc's own `refused` capture). Rendered as
+that capture, field for field: `[<time>] "- - HTTP/1.1" 400 DPE 0 11 0 - "-"
+"-" "-" "-" "-"`.
 
 **`istio`.** Istio's default `EnvoyTextLogFormat`, the layout above plus
 `RESPONSE_CODE_DETAILS` `via_upstream`, `CONNECTION_TERMINATION_DETAILS` `-`,
@@ -294,37 +297,62 @@ measured. The request is a **whole URL**, `http://shop.test:80` + target. User
 Agent quoted as received (AWS documents no escaping; it truncates over 8 KB,
 which no line here reaches). No Referer field. Processing times constant
 `0.000`. Trace id from the request id. Port constant `0`. `received_bytes` and
-`sent_bytes` include headers: see Open decisions. *Malformed:* ALB documents
+`sent_bytes` include headers: a lower bound (Decisions). *Malformed:* ALB documents
 that malformed requests are still logged, with `-1` processing times and `-`
 target: written that way, which is faithful.
 
-## Open decisions (for the logarc session)
+## Decisions (agreed with the logarc session, 2026-10-27)
 
-1. **Byte fields that include headers.** Proposal: write the measured body
-   size and flag the field, in the manifest, as a lower bound. The alternative
-   is a constant `0`, which no successful response really has. Affects HAProxy
-   `%B`, ALB `sent_bytes`/`received_bytes`, CloudFront `sc-bytes`/`cs-bytes`,
-   Cloudflare `EdgeResponseBytes`, ingress-nginx `$request_length`. logarc
-   reads `bytes_sent` but no rule uses it.
-2. **`apache-combined-io`.** Proposal: do not render it. The format's whole
-   addition is two wire-byte counts nobody measured. Rendering it with the
-   lower-bound rule would make it a combined line with invented-looking
-   numbers on the end.
-3. **Malformed lines on servers that log them differently.** Proposal: as the
-   server would (HAProxy `<BADREQ>`, Envoy and Istio `- -` with `DPE`); kept
-   as received, and flagged, where the server would not have logged them at all
-   (Caddy, Traefik, IIS, CloudFront, Cloudflare, GCP).
-4. **Header-keeping configurations** (Traefik keep User-Agent and Referer,
-   HAProxy capture both). Proposal: as written above. Without them those
-   formats carry no User-Agent or Referer, and the comparison measures the
-   configuration rather than the parser.
+1. **Byte fields that include headers** carry the measured body size, and the
+   manifest names each such field as a lower bound (`lower_bound_fields`):
+   HAProxy `%B`, ALB `sent_bytes`/`received_bytes`, CloudFront
+   `sc-bytes`/`cs-bytes`, Cloudflare `EdgeResponseBytes`, ingress-nginx
+   `$request_length`, Apache `%I`/`%O`.
+   A **request** size is bounded below by what the capture holds: the
+   request line, the Referer and User-Agent headers when sent, each with its
+   CRLF, and the closing blank line. Everything else the client sent was
+   never recorded.
+2. **`apache-combined-io` is rendered**, `%I` and `%O` both lower bounds as
+   above. What it tests is whether a detector picks combined-io for the file
+   rather than reading it as combined with junk on the end.
+3. **Malformed lines** are written as the server writes them where a source
+   or a capture shows it (HAProxy `<BADREQ>`; Envoy and Istio as the
+   2026-10-25 Envoy 1.36.13 refusal, every request field `-`, `BYTES_SENT`
+   `11` as captured, `DURATION` `0`). Istio keeps `DOWNSTREAM_REMOTE_ADDRESS`
+   as `client:0` on those lines: the formatter defines it as the "remote
+   address of the downstream connection", a property of the connection, which
+   existed. Where the server would not have logged the line at all (Caddy,
+   Traefik, IIS) it is kept and flagged so. Where nothing cited says, it is
+   kept as received and flagged as that.
+4. **Header-keeping configurations** as written above: Traefik keeps
+   User-Agent and Referer; HAProxy captures Referer then User-Agent. logarc's
+   built-in `haproxy` does not read the capture block as either header, by
+   design, since which slot holds which is configuration.
+
+## Flags
+
+Every line a server would have written differently is named in
+`rendered/MANIFEST.json`, per format, by its **physical line number** in that
+file (header lines counted, as logarc counts them):
+
+| Flag | Means |
+|---|---|
+| `rendered_as_server_rejects` | written as that server writes its refusal, not as Apache received it |
+| `server_would_not_log` | that server would not have written this line at all: a request line it rejects before logging, or one of Apache's own dummy connections (`127.0.0.1 "OPTIONS * HTTP/1.0"`), which only Apache writes |
+| `kept_as_received` | a malformed request line written as received, where the server's handling is not documented in the sources cited |
+
+The malformed request lines are those that are not `METHOD TARGET HTTP/x.y`:
+94 / 294 / 910 lines in the 2026-10-06 small / medium / large tiers, every one
+from the noise client 203.0.113.6.
 
 ## Output
 
 `datasets/apache-shopfront/<build>/rendered/<format>.log` and
-`<format>.truth.jsonl`, a `MANIFEST.json` naming every constant, offset and
-flagged line count, and a `SHA256SUMS`. Not committed, like every full log.
-Each file's first mention anywhere says "rendered from the Apache capture".
+`<format>.truth.jsonl`, a `MANIFEST.json` naming every offset, lower-bound
+field and flagged line, and a `SHA256SUMS`. Not committed, like every full
+log. Written by `python3 tools/render.py <build>`, which re-runs the remap and
+refuses unless that reproduces the shipped log exactly. Each file's first
+mention anywhere says "rendered from the Apache capture".
 
 [apache-log]: https://httpd.apache.org/docs/2.4/mod/mod_log_config.html
 [nginx-log]: https://nginx.org/en/docs/http/ngx_http_log_module.html

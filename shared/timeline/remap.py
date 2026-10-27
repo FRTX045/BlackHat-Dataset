@@ -220,6 +220,64 @@ def remap_records(lines, records, *, start, duration_seconds, seed,
             rests on is already broken, and carrying it forward quietly would
             put a wrong label on every line after it.
     """
+    placed = _place(lines, records, start=start,
+                    duration_seconds=duration_seconds, seed=seed,
+                    unpaced=unpaced)
+    order, when_at, matches = placed.order, placed.when_at, placed.matches
+
+    new_lines, new_records = [], []
+    for position, index in enumerate(order, 1):
+        match = matches[index]
+        new_lines.append(_rewrite(lines[index], match, when_at[index])
+                         if match else lines[index])
+        new_records.append(dict(records[index], line_no=position))
+
+    stamps = [when_at[i] for i in order]
+    span = (stamps[-1] - stamps[0]).total_seconds() if stamps else 0.0
+    return new_lines, new_records, RemapReport(
+        lines=len(lines),
+        episodes=placed.episodes,
+        original_span_seconds=_span_of(placed.original),
+        new_span_seconds=span,
+        episodes_pushed=placed.pushed,
+        unparsed_lines=placed.unparsed,
+        start=stamps[0].isoformat() if stamps else start.isoformat(),
+        end=stamps[-1].isoformat() if stamps else start.isoformat(),
+        description=(
+            "Timestamps were rewritten: session starts redrawn from the "
+            "diurnal and weekly curves, spacing within a session "
+            "reconstructed from what each request was. Every other byte of "
+            "every line, and the order of requests within a session, is as "
+            "captured. access.raw.log is the log Apache wrote."),
+    )
+
+
+def remap_placement(lines, records, *, start, duration_seconds, seed,
+                    unpaced=frozenset()):
+    """Where each line of the rewritten log came from, and its exact time.
+
+    One ``(capture_index, when)`` per line of what `remap_records` writes, in
+    its order, from the same computation: ``when`` is the time the line was
+    given before the stamp truncated it to the second, ``capture_index`` the
+    line's position in `lines`. Arguments and errors as `remap_records`.
+    """
+    placed = _place(lines, records, start=start,
+                    duration_seconds=duration_seconds, seed=seed,
+                    unpaced=unpaced)
+    return [(index, placed.when_at[index]) for index in placed.order]
+
+
+class _Placed(NamedTuple):
+    order: list
+    when_at: list
+    matches: list
+    episodes: int
+    pushed: int
+    unparsed: int
+    original: list
+
+
+def _place(lines, records, *, start, duration_seconds, seed, unpaced):
     from shared.timeline.arrivals import arrival_times_for_count
 
     if len(lines) != len(records):
@@ -322,32 +380,9 @@ def remap_records(lines, records, *, start, duration_seconds, seed,
     # Stable by construction: ties keep the original index, so requests that
     # land in the same second come out in the order they were made.
     order = sorted(range(len(lines)), key=lambda i: (when_at[i], i))
-
-    new_lines, new_records = [], []
-    for position, index in enumerate(order, 1):
-        match = matches[index]
-        new_lines.append(_rewrite(lines[index], match, when_at[index])
-                         if match else lines[index])
-        new_records.append(dict(records[index], line_no=position))
-
-    stamps = [when_at[i] for i in order]
-    span = (stamps[-1] - stamps[0]).total_seconds() if stamps else 0.0
-    return new_lines, new_records, RemapReport(
-        lines=len(lines),
-        episodes=len(groups),
-        original_span_seconds=_span_of(original),
-        new_span_seconds=span,
-        episodes_pushed=pushed,
-        unparsed_lines=unparsed,
-        start=stamps[0].isoformat() if stamps else start.isoformat(),
-        end=stamps[-1].isoformat() if stamps else start.isoformat(),
-        description=(
-            "Timestamps were rewritten: session starts redrawn from the "
-            "diurnal and weekly curves, spacing within a session "
-            "reconstructed from what each request was. Every other byte of "
-            "every line, and the order of requests within a session, is as "
-            "captured. access.raw.log is the log Apache wrote."),
-    )
+    return _Placed(order=order, when_at=when_at, matches=matches,
+                   episodes=len(groups), pushed=pushed, unparsed=unparsed,
+                   original=original)
 
 
 def _span_of(stamps):

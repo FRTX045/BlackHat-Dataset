@@ -1,5 +1,5 @@
 # Build output. Full logs are not committed: a build regenerates them, and
-# tools/package.py builds the release assets they are planned to ship as.
+# tools/package.py builds the release assets they are published as.
 __pycache__/
 *.pyc
 .venv/

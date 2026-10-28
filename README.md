@@ -108,10 +108,13 @@ Committed to the repository:
   - `sample.log` — 5,000 lines, for eyeballing
   - `sample.truth.jsonl` — its matching truth records
 
-Written by every build into that same folder, and **not published anywhere
-yet**. Release assets are planned — `tools/package.py` already builds them,
-`xz`-compressed with a `SHA256SUMS` — but no release exists today, so the way
-to get these files is to regenerate them:
+Written by every build into that same folder, and too large to commit. For
+the 2026-10-06 builds they are **published as GitHub releases**, one per build —
+[small](https://github.com/FRTX045/LogarX-Dataset/releases/tag/2026-10-06-small),
+[medium](https://github.com/FRTX045/LogarX-Dataset/releases/tag/2026-10-06-medium),
+[large](https://github.com/FRTX045/LogarX-Dataset/releases/tag/2026-10-06-large)
+— `xz`-compressed by `tools/package.py`, with a `SHA256SUMS`. For any other
+build, regenerate them:
 
 - the full `access.log` and `truth.jsonl`
 - `access.raw.log` and `truth.raw.jsonl` — the log the server actually wrote,
@@ -126,7 +129,8 @@ arrived; a checksum over the contents proves the dataset is the one the
 manifest describes, and it survives recompression.
 
 ```bash
-python3 tools/package.py datasets/apache-shopfront/<date>-<tier>
+python3 tools/package.py datasets/apache-shopfront/<date>-<tier>   # to make the assets
+for f in *.xz; do xz -dk "$f"; done                                # after a download
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
@@ -135,8 +139,8 @@ nothing installed, which is the same rule every host entry point here follows.
 
 ### What regenerating gives you
 
-Regenerating is today the only way to get the full logs, so it matters what it
-reproduces.
+For a build with no release, regenerating is the only way to get the full
+logs, so it matters what it reproduces.
 
 - **Check out the commit the manifest names.** The 2026-10-06 builds name
   `d2ef291`. Later commits change the traffic: `24c1f1e` changed which page an
@@ -158,9 +162,9 @@ reproduces.
   responses can change with it. `base_image_digest` in `MANIFEST.json`
   identifies the web image a build used; it is built locally and cannot be
   pulled.
-- **The shipped bytes themselves** exist only on the machine that built them
-  until a release is published, and until then nobody else can check a digest
-  against them.
+- **The shipped bytes themselves** are the releases. To check a figure measured
+  on a 2026-10-06 build, download that build's release rather than rebuilding:
+  a rebuild lands near those bytes, the release is them.
 
 ## The same traffic in 21 formats
 
@@ -309,8 +313,8 @@ python3 tools/audit.py datasets/apache-shopfront/2026-10-06-small --compare acce
 python3 tools/audit.py /var/log/apache2/access.log      # or anybody else's
 ```
 
-The first two need that build's full logs, which are not in the repository; on
-a fresh clone, point them at a build of your own.
+The first two need that build's full logs, which are in its release, not in
+the repository.
 
 Nine tells — toy-sized responses, round-number response sizes, an implausible
 request rate, user-agent monoculture, uniform client volumes, missing status

@@ -1,41 +1,58 @@
-# BlackHat-Dataset
+# LogarX Dataset
 
-Labelled web-server log datasets for forensic log-analysis research.
+A labelled web-server access log for forensic log-analysis research: one shop,
+attacked and browsed, with a ground-truth label on every line.
 
-Every line in every log here was written by a real server, in response to a
-request that was genuinely made. No line is templated or emitted by a log
-generator. A real web application is stood up, a real Apache serves it,
-scripted people-shaped traffic and real security tools are driven at it, and the
-log the server wrote is the log that ships — alongside a ground truth file that
-says what every single line actually was.
+- **One real application on a real server.** A deliberately vulnerable PHP 8.3
+  shop, served by Apache 2.4 in Docker on an isolated network.
+- **Scripted, people-shaped traffic.** Shoppers, admins, crawlers and a real
+  Chromium driven at it, hand-written attack campaigns that read each response
+  before deciding what to send next, and five real security tools: whatweb,
+  dirb, gobuster, nmap and sqlmap.
+- **The server's own log, and a label for every line of it.** Each line of
+  `access.log` was written by Apache in answer to a request that was really
+  made; `truth.jsonl` says, line for line, what each one was.
+- **Three sizes:** a day, a week and a month of traffic.
+- **The same traffic in 21 log formats.** Apache's own, and 20 more rendered
+  from it — nginx, ingress-nginx, Traefik, Caddy, Cloudflare, Google Cloud,
+  Elastic (ECS), IIS, CloudFront, HAProxy, Envoy, Istio and AWS ALB among them —
+  each with its own truth file, and with every line that server would have
+  written differently flagged.
 
-That last part is the point. A dataset nobody can score against is a dataset
-nobody can measure with.
+It was built to measure [LogarX](https://github.com/FRTX045/LogarX), and reads
+directly into it, but nothing here depends on LogarX.
 
-What is synthetic and what is not, in the terms the rest of this page uses:
-the **traffic is scripted** — who visits, and what they are after, comes from a
-seeded plan; the **log lines are real server output**; and the **timestamps in
-`access.log` are rewritten** onto the arrival curves the plan was drawn from,
-because the harness issues the plan far faster than real visitors arrive.
-Every other byte of every line, and the order of requests within each session,
-is as Apache wrote it, and `access.raw.log` ships alongside with the timestamps
-Apache actually wrote.
+## What is synthetic and what is not
 
-## Projects
+The terms the rest of this page uses:
 
-| Project | Server | Format | Status |
-|---|---|---|---|
-| [`apache-shopfront`](projects/apache-shopfront/) | Apache 2.4 | Combined | `small`, `medium`, `large` |
+- the **traffic is scripted** — who visits, and what they are after, comes from
+  a seeded plan;
+- the **log lines are real server output** — no line is templated or written
+  by a log generator;
+- the **timestamps in `access.log` are rewritten** onto the arrival curves the
+  plan was drawn from, because the harness issues the plan far faster than real
+  visitors arrive. Every other byte of every line, and the order of requests
+  within each session, is as Apache wrote it, and `access.raw.log` ships
+  alongside with the timestamps Apache actually wrote.
+- the **other 20 formats are rendered**, never captured: no nginx, IIS or CDN
+  served this traffic. See [The same traffic in 21 formats](#the-same-traffic-in-21-formats).
 
-The repository is built to hold many. nginx, IIS W3C, HAProxy, Tomcat,
-ModSecurity audit logs, CDN JSON logs and `sshd` auth logs are all plausible
-additions; see [docs/adding-a-project.md](docs/adding-a-project.md).
+## Layout
 
-## Build a dataset
+| Path | Holds |
+|---|---|
+| [`projects/apache-shopfront/`](projects/apache-shopfront/) | The shop, the server configuration, the traffic, the attacks and the scenarios |
+| `datasets/apache-shopfront/<date>-<tier>/` | One folder per build |
+| [`docs/methodology.md`](docs/methodology.md) | How the labels are made, what is manipulated, how to audit a build |
+| [`docs/rendered-formats.md`](docs/rendered-formats.md) | The rules for every rendered format, with sources |
+| `tools/` | `build.py`, `verify.py`, `audit.py`, `render.py`, `package.py` |
 
-One command does everything — brings the server up, drives the traffic, runs the
-attacks, collects the logs, writes the truth file, verifies the result, writes
-the manifest, and tears the server down.
+## Build it
+
+One command brings the server up, drives the traffic, runs the attacks,
+collects the logs, writes the truth file, verifies the result, writes the
+manifest, and tears the server down.
 
 ```bash
 python3 tools/build.py apache-shopfront small
@@ -75,18 +92,16 @@ whole plan as fast as the sockets allow, so a run that takes eight minutes
 produces requests in the right *order* and at an impossible *rate*. Timestamps
 are therefore rewritten onto the same arrival curves the traffic was planned
 against — and the log the server actually wrote ships alongside as
-`access.raw.log`, so nothing is taken on trust. This is the one thing in the
-project that is computed rather than collected;
+`access.raw.log`, so nothing is taken on trust.
 [docs/methodology.md](docs/methodology.md) says exactly what is done and what
 it costs.
-
 
 ## What ships
 
 Committed to the repository:
 
 - all source, scenario configs and seeds
-- for each build, under `datasets/<project>/<date>-<tier>/`:
+- for each build, under `datasets/apache-shopfront/<date>-<tier>/`:
   - `MANIFEST.json` — seed, commit, tool versions, every attack command line
     with its source IP and time window, wall-clock duration, final line count
   - `README.md` — what that build is, and its known limitations
@@ -147,6 +162,55 @@ reproduces.
   until a release is published, and until then nobody else can check a digest
   against them.
 
+## The same traffic in 21 formats
+
+A detector that reads many log formats can misread one in a way no single test
+line shows. So a build's capture can be written into 20 other formats, the
+same requests in the same order in each:
+
+```bash
+python3 tools/render.py datasets/apache-shopfront/2026-10-06-medium
+```
+
+That writes `rendered/` inside the build: a `<format>.log` and its
+`<format>.truth.jsonl` for each format, a `MANIFEST.json` and a `SHA256SUMS`.
+Like the full logs, they are regenerated rather than committed.
+
+| Family | Formats |
+|---|---|
+| Apache | `apache-common`, `apache-vhost-common`, `apache-vhost-combined`, `apache-combined-io` |
+| nginx | `nginx-main`, `nginx-combined-forwarded`, `ingress-nginx`, `nginx-json` |
+| Traefik, Caddy | `traefik-common`, `traefik-json`, `caddy-json` |
+| Cloud and CDN | `cloudflare-json`, `gcp-http-json`, `ecs-http`, `cloudfront` |
+| Windows | `iis-w3c` |
+| Proxies | `haproxy`, `envoy`, `istio`, `aws-alb` |
+
+**Every one of these files is rendered from the Apache capture, never
+captured.** Apache and PHP answered every request; each file writes what they
+logged in another server's columns, so that one detector can be run on the
+same traffic in every format and the results compared. Rendered this way:
+
+- **Each field is written the way that server writes it** — its layout, its
+  escaping, its time format — checked against the vendor's documentation or
+  source, cited per format in [docs/rendered-formats.md](docs/rendered-formats.md).
+- **What the capture never measured is a declared constant**: durations,
+  client ports, the Host header, a proxy's own fields. Byte counts that include
+  headers carry the body size, and the manifest names each as a lower bound.
+- **Records are one to one** with `access.log`. Formats that start with header
+  lines (IIS +4, CloudFront +2) have their truth's `line_no` moved past them.
+- **Lines a real server would have written differently are flagged** by line
+  number in `rendered/MANIFEST.json`: the noise client's malformed request
+  lines, which each server refuses its own way, and Apache's own dummy
+  connections, which only Apache writes.
+- **The renderer refuses** unless re-running the timestamp remap reproduces the
+  shipped `access.log` exactly, so a sub-second time or a request id can never
+  land on the wrong line.
+
+LogarX's own results on these files, for the 2026-10-06 small and medium
+builds, are in its
+[evaluation](https://github.com/FRTX045/LogarX/blob/main/docs/evaluation.md),
+"The same traffic in every log format — 2026-10-27".
+
 ## The ground truth file
 
 JSON Lines. One header line, then exactly one record per log line, in order.
@@ -157,11 +221,12 @@ JSON Lines. One header line, then exactly one record per log line, in order.
 {"line_no":2,"client_ip":"198.51.100.9","category":"enumeration","instance_id":"198.51.100.9#2"}
 ```
 
-`"kind":"logarc-truth"` names the format that
-[logarc](https://github.com/FRTX045/logarc)'s `logarc evaluate` command reads,
-so a build here can be scored by it as it stands. logarc's published scores —
-its README's
-[How well does it work](https://github.com/FRTX045/logarc#how-well-does-it-work)
+`"kind":"logarc-truth"` is the format
+[LogarX](https://github.com/FRTX045/LogarX)'s `evaluate` command reads; the
+name is from before LogarX was renamed, and LogarX 1.0 reads it as well as
+`logarx-truth`. It is kept so that every build here, old and new, has the same
+header. LogarX's published scores — its README's
+[How well does it work](https://github.com/FRTX045/LogarX#how-well-does-it-work)
 — were measured on `2026-10-06-medium`.
 
 - `line_no` — 1-based, contiguous, matching `access.log` exactly
@@ -214,7 +279,7 @@ Full detail: [docs/methodology.md](docs/methodology.md).
 
 ## Verification
 
-`tools/verify.py` fails loudly. No dataset is reported as finished until it
+`tools/verify.py` fails loudly. No build is reported as finished until it
 passes and its output has been read.
 
 It checks that truth records equal log lines exactly, that every `client_ip`
@@ -230,7 +295,7 @@ inter-arrival shape, requests per session, user-agent cardinality, `Referer`
 share, the share of `304`/`206`/`HEAD`/`OPTIONS`, attack share per category,
 and client IP concentration — as numbers to actually look at.
 
-Every dataset README ends with a **Known limitations** section naming what is
+Every build's README ends with a **Known limitations** section naming what is
 still unrealistic about it. Scripted traffic always leaves some.
 
 ### The fake-log audit
@@ -253,18 +318,19 @@ classes, an absence of malformed requests, perfectly ordered timestamps, and
 client addresses counted out of a subnet. Each publishes the threshold it used,
 and too little data is reported as *inconclusive* rather than as a pass.
 
-It is pointed at our own datasets first and hardest, **and it does find
-things.** Whatever fires on a dataset is written into that dataset's README
-and its manifest. The point of owning the detector is that the findings are
-ours to publish rather than somebody else's to discover.
+It is pointed at this dataset first and hardest, **and it does find things.**
+Whatever fires on a build is written into that build's README and its
+manifest. The point of owning the detector is that the findings are ours to
+publish rather than somebody else's to discover.
 
 ## Safety
 
-The applications in this repository are **deliberately vulnerable** and are
-documented as such in each project's `VULNERABILITIES.md`. They exist to be
-attacked by the build process and by nothing else.
+The shop is **deliberately vulnerable**, and every planted weakness is
+documented in
+[`projects/apache-shopfront/app/VULNERABILITIES.md`](projects/apache-shopfront/app/VULNERABILITIES.md).
+It exists to be attacked by the build process and by nothing else.
 
-- They bind to an isolated Docker network and publish no host port.
+- It binds to an isolated Docker network and publishes no host port.
 - Every attack targets the lab's own application on that network. No external
   host is ever a target.
 - No real credentials, no real personal data, no third-party services.
@@ -272,4 +338,4 @@ attacked by the build process and by nothing else.
   ranges `203.0.113.0/24`, `198.51.100.0/24`, `192.0.2.0/24` and
   `100.64.0.0/10`. No address here belongs to an identifiable person or company.
 
-Do not deploy these applications anywhere reachable.
+Do not deploy this application anywhere reachable.

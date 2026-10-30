@@ -1,4 +1,4 @@
-# LogarX Dataset
+# Zodiarc Dataset
 
 A labelled web-server access log for forensic log-analysis research: one shop,
 attacked and browsed, with a ground-truth label on every line.
@@ -19,8 +19,8 @@ attacked and browsed, with a ground-truth label on every line.
   each with its own truth file, and with every line that server would have
   written differently flagged.
 
-It was built to measure [LogarX](https://github.com/FRTX045/LogarX), and reads
-directly into it, but nothing here depends on LogarX.
+It was built to measure [Zodiarc](https://github.com/FRTX045/Zodiarc), and reads
+directly into it, but nothing here depends on Zodiarc.
 
 ## What is synthetic and what is not
 
@@ -110,9 +110,9 @@ Committed to the repository:
 
 Written by every build into that same folder, and too large to commit. For
 the 2026-10-06 builds they are **published as GitHub releases**, one per build —
-[small](https://github.com/FRTX045/LogarX-Dataset/releases/tag/2026-10-06-small),
-[medium](https://github.com/FRTX045/LogarX-Dataset/releases/tag/2026-10-06-medium),
-[large](https://github.com/FRTX045/LogarX-Dataset/releases/tag/2026-10-06-large)
+[small](https://github.com/FRTX045/Zodiarc-Dataset/releases/tag/2026-10-06-small),
+[medium](https://github.com/FRTX045/Zodiarc-Dataset/releases/tag/2026-10-06-medium),
+[large](https://github.com/FRTX045/Zodiarc-Dataset/releases/tag/2026-10-06-large)
 — `xz`-compressed by `tools/package.py`, with a `SHA256SUMS`. For any other
 build, regenerate them:
 
@@ -210,9 +210,9 @@ same traffic in every format and the results compared. Rendered this way:
   shipped `access.log` exactly, so a sub-second time or a request id can never
   land on the wrong line.
 
-LogarX's own results on these files, for the 2026-10-06 small and medium
+Zodiarc's own results on these files, for the 2026-10-06 small and medium
 builds, are in its
-[evaluation](https://github.com/FRTX045/LogarX/blob/main/docs/evaluation.md),
+[evaluation](https://github.com/FRTX045/Zodiarc/blob/main/docs/evaluation.md),
 "The same traffic in every log format — 2026-10-27".
 
 ## The ground truth file
@@ -226,11 +226,11 @@ JSON Lines. One header line, then exactly one record per log line, in order.
 ```
 
 `"kind":"logarc-truth"` is the format
-[LogarX](https://github.com/FRTX045/LogarX)'s `evaluate` command reads; the
-name is from before LogarX was renamed, and LogarX 1.0 reads it as well as
-`logarx-truth`. It is kept so that every build here, old and new, has the same
-header. LogarX's published scores — its README's
-[How well does it work](https://github.com/FRTX045/LogarX#how-well-does-it-work)
+[Zodiarc](https://github.com/FRTX045/Zodiarc)'s `evaluate` command reads; the
+name is from before the tool was renamed, and Zodiarc reads it as well as
+`logarx-truth` and `zodiarc-truth`. It is kept so that every build here, old
+and new, has the same header. Zodiarc's published scores — its README's
+[How well does it work](https://github.com/FRTX045/Zodiarc#how-well-does-it-work)
 — were measured on `2026-10-06-medium`.
 
 - `line_no` — 1-based, contiguous, matching `access.log` exactly

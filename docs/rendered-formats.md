@@ -1,6 +1,6 @@
 # Rendered formats: the rules
 
-**Status: agreed with the LogarX session on 2026-10-27**; the decisions are at
+**Status: agreed with the Zodiarc session on 2026-10-27**; the decisions are at
 the end.
 
 Every file this produces is **rendered from the Apache capture**. It is never a
@@ -51,7 +51,7 @@ remap's draw, already disclosed as inference in every remapped dataset.
    the format's header lines. Its truth file is `truth.jsonl` with `line_no`
    shifted by the header size: **+4 for IIS** (`#Software`, `#Version`, `#Date`,
    `#Fields`), **+2 for CloudFront** (`#Version`, `#Fields`), +0 for everything
-   else. LogarX counts physical lines, so the offset is what keeps
+   else. Zodiarc counts physical lines, so the offset is what keeps
    evidence pointing at the right line. One file per format, one header block
    at the top.
 2. **Constants are declared.** A field nobody measured gets one fixed value
@@ -90,7 +90,7 @@ remap's draw, already disclosed as inference in every remapped dataset.
 
 Each block: the layout written, where each field comes from, the escaping,
 the constants, and the source the layout and escaping were checked against.
-LogarX's `builtins.py` and its samples were used for field placement only.
+Zodiarc's `builtins.py` and its samples were used for field placement only.
 
 ### Apache family
 
@@ -101,7 +101,7 @@ read from this build's own image, `/etc/apache2/apache2.conf` lines 212–214.
 |---|---|---|
 | `apache-common` | `%h %l %u %t "%r" %>s %b` | Exact: the shipped line minus Referer and User-Agent. |
 | `apache-vhost-common` | `%v %h %l %u %t "%r" %>s %b` | `%v` = `shop.test`, the canonical ServerName ([docs' own `vhost_common`][apache-log]). Exact. |
-| `apache-vhost-combined` | `%v:%p %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"` | `shop.test:80`. **Debian's stock `vhost_combined` uses `%O`, not `%b`**; this is written with `%b`, as this server redefines `combined`, and as LogarX defines it. Exact under that redefinition. |
+| `apache-vhost-combined` | `%v:%p %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"` | `shop.test:80`. **Debian's stock `vhost_combined` uses `%O`, not `%b`**; this is written with `%b`, as this server redefines `combined`, and as Zodiarc defines it. Exact under that redefinition. |
 | `apache-combined-io` | combined + ` %I %O` | Both counts unmeasured: `%I` the request-size lower bound, `%O` the body size, both flagged as lower bounds (Decisions 1 and 2). |
 
 Escaping: Apache's own, so the shipped bytes carry over unchanged.
@@ -129,7 +129,7 @@ received. Kept as is.
 ### Traefik
 
 Sources: [Traefik access logs][traefik-log] (field meanings, CLF layout,
-`defaultMode` drop); [logger_formatters.go][traefik-clf] (CLF writer); LogarX's
+`defaultMode` drop); [logger_formatters.go][traefik-clf] (CLF writer); Zodiarc's
 sample written by Traefik 3.7.16 (`&` for `&` in `RequestPath`).
 
 | Format | Layout and fields |
@@ -155,7 +155,7 @@ line for `GARBAGE` or `GET /.env x`. Kept, counted, flagged.
 | Format | Fields written | Source |
 |---|---|---|
 | `nginx-json` | `time_local`, `remote_addr`, `request`, `status`, `body_bytes_sent`, `http_referer`, `http_user_agent`, all as JSON strings, `log_format ... escape=json`. **An absent Referer is `""`, not `"-"`**: with `escape=json` nginx writes nothing for a variable not found. `body_bytes_sent` `"0"` for `-`. | [nginx-log], [nginx-src] (`ngx_http_log_json_variable`) |
-| `caddy-json` | `level`, `ts` (Unix seconds, float, modelled time), `logger` `http.log.access.log0`, `msg` `handled request`, `request` {`remote_ip`, `remote_port` constant `"0"`, `client_ip`, `proto`, `method`, `host` `shop.test`, `uri` (**path and query**), `headers` {`User-Agent`: [..], `Referer`: [..]}: **header values are arrays**, absent headers are left out}, `bytes_read` `0`, `user_id` `""`, `duration` constant `0`, `size` (body, `0` for `-`), `status`, `resp_headers` `{}`. | [Caddy log directive][caddy-log] (`unix_seconds_float`, duration in seconds, headers as string arrays); LogarX's sample written by Caddy 2.11.7 |
+| `caddy-json` | `level`, `ts` (Unix seconds, float, modelled time), `logger` `http.log.access.log0`, `msg` `handled request`, `request` {`remote_ip`, `remote_port` constant `"0"`, `client_ip`, `proto`, `method`, `host` `shop.test`, `uri` (**path and query**), `headers` {`User-Agent`: [..], `Referer`: [..]}: **header values are arrays**, absent headers are left out}, `bytes_read` `0`, `user_id` `""`, `duration` constant `0`, `size` (body, `0` for `-`), `status`, `resp_headers` `{}`. | [Caddy log directive][caddy-log] (`unix_seconds_float`, duration in seconds, headers as string arrays); Zodiarc's sample written by Caddy 2.11.7 |
 | `cloudflare-json` | `ClientIP`, `ClientRequestHost`, `ClientRequestMethod`, `ClientRequestURI` (**path and query**), `ClientRequestPath`, `ClientRequestProtocol`, `ClientRequestReferer`, `ClientRequestUserAgent`, `EdgeResponseStatus`, `EdgeStartTimestamp` (**`unixnano`**, the API default, from the modelled time), `RayID` (from the request id, 16 hex). `EdgeResponseBytes`: a lower bound (Decisions). | [Logpush http_requests fields][cf-fields], [Logpush output options][cf-output] |
 | `gcp-http-json` | `timestamp` (RFC 3339, `Z`, microseconds, modelled), `httpRequest` {`requestMethod`, `requestUrl` = **`http://shop.test` + path + query**, `status` (integer), `userAgent`, `remoteIp`, `referer`, `protocol`}. `responseSize` and `requestSize` are **strings** and include headers: left out (they are optional); `latency` left out. Fields absent from the request are omitted, not `"-"`. | [LogEntry / HttpRequest][gcp-logentry] |
 | `ecs-http` | `@timestamp` (RFC 3339, milliseconds, modelled), `client.ip`, `source.ip`, `http.request.method` (case as received), `http.request.referrer`, `http.version`, `http.response.status_code`, `http.response.body.bytes` (`%b`; omitted when Apache wrote `-`), `url.original` (target as received), `url.path`, `url.query` (**without the `?`**; absent when the target has no `?`, empty string when it ends in `?`), `url.domain` `shop.test`, `user_agent.original`. Nested objects, as Filebeat writes them. | [ECS http][ecs-http], [ECS url][ecs-url] |
@@ -270,9 +270,9 @@ request body bytes: `0` for GET/HEAD, unmeasured for POST — constant `0`.
 own UUID, so the measured id is written in UUID layout (8-4-4-4-12). Authority
 `shop.test`, upstream `10.0.0.20:80`. **No escaping**: Envoy writes header
 values as they came. Measured: no User-Agent in the three tiers contains `"`,
-so no line is affected by LogarX's refusal of ambiguous quotes. No Referer
+so no line is affected by Zodiarc's refusal of ambiguous quotes. No Referer
 field. *Malformed:* Envoy's codec rejects these before routing and logs
-`"- - HTTP/1.1" 400 DPE` (as in LogarX's own `refused` capture). Rendered as
+`"- - HTTP/1.1" 400 DPE` (as in Zodiarc's own `refused` capture). Rendered as
 that capture, field for field: `[<time>] "- - HTTP/1.1" 400 DPE 0 11 0 - "-"
 "-" "-" "-" "-"`.
 
@@ -301,7 +301,7 @@ which no line here reaches). No Referer field. Processing times constant
 that malformed requests are still logged, with `-1` processing times and `-`
 target: written that way, which is faithful.
 
-## Decisions (agreed with the LogarX session, 2026-10-27)
+## Decisions (agreed with the Zodiarc session, 2026-10-27)
 
 1. **Byte fields that include headers** carry the measured body size, and the
    manifest names each such field as a lower bound (`lower_bound_fields`):
@@ -325,7 +325,7 @@ target: written that way, which is faithful.
    Traefik, IIS) it is kept and flagged so. Where nothing cited says, it is
    kept as received and flagged as that.
 4. **Header-keeping configurations** as written above: Traefik keeps
-   User-Agent and Referer; HAProxy captures Referer then User-Agent. LogarX's
+   User-Agent and Referer; HAProxy captures Referer then User-Agent. Zodiarc's
    built-in `haproxy` does not read the capture block as either header, by
    design, since which slot holds which is configuration.
 
@@ -333,7 +333,7 @@ target: written that way, which is faithful.
 
 Every line a server would have written differently is named in
 `rendered/MANIFEST.json`, per format, by its **physical line number** in that
-file (header lines counted, as LogarX counts them):
+file (header lines counted, as Zodiarc counts them):
 
 | Flag | Means |
 |---|---|
